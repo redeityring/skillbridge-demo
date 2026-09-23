@@ -161,6 +161,8 @@ export interface Dictionary {
   bridgeSkipped: string;
   gapAtDiagnosis: string;
   pts: string;
+  /** Localized unit word for deltas, e.g. "pts" / "балл.". */
+  ptsUnit: string;
   allTopics: string;
   realResults: string;
   runNotFinishedBody: string;

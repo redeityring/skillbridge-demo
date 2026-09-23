@@ -60,11 +60,14 @@ export function ComparisonChart({
   items,
   reference,
   ariaLabel,
+  /** Localized caption for the dashed reference line, if the caller has i18n. */
+  comparisonLegend,
   className,
 }: {
   items: ChartItem[];
   reference?: { value: number; label: string };
   ariaLabel: string;
+  comparisonLegend?: (value: number, label: string) => string;
   className?: string;
 }) {
   const summary = items.map((item) => `${item.label} ${Math.round(item.value)} percent`).join(", ");
@@ -119,7 +122,9 @@ export function ComparisonChart({
             className="pt-0.5 text-xs text-subtle-foreground pl-[calc(var(--chart-label)+0.75rem)]"
             aria-hidden="true"
           >
-            Dashed line = {reference.label} ({Math.round(reference.value)}%)
+            {comparisonLegend
+              ? comparisonLegend(Math.round(reference.value), reference.label)
+              : `Dashed line = ${reference.label} (${Math.round(reference.value)}%)`}
           </p>
         ) : null}
       </div>
@@ -132,10 +137,13 @@ export function DeltaChip({
   delta,
   className,
   size = "md",
+  unit = "pts",
 }: {
   delta: number;
   className?: string;
   size?: "md" | "lg";
+  /** Localized unit word, e.g. "балла"/"баллов". Defaults to "pts". */
+  unit?: string;
 }) {
   const positive = delta > 0;
   const flat = delta === 0;
@@ -153,7 +161,7 @@ export function DeltaChip({
       )}
     >
       {positive ? "+" : ""}
-      {Math.round(delta)} pts
+      {Math.round(delta)} {unit}
     </span>
   );
 }

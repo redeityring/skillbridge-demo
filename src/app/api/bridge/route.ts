@@ -7,6 +7,9 @@ import { pickBankExercises, stampExercises, type BridgePlan } from "@/lib/bridge
 import { ASSESSMENT_CONFIG } from "@/lib/scoring";
 import type { BridgeExercise, GapLevel, TopicId } from "@/lib/types";
 
+/** Vercel serverless limit (s). AI exercise generation needs more than the default. */
+export const maxDuration = 60;
+
 /**
  * Generates targeted practice for a detected gap.
  *

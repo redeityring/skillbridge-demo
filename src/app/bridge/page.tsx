@@ -18,6 +18,7 @@ import { gradeAnswer, requestBridgeExercises } from "@/lib/api-client";
 import { buildBridgePlan, type BridgePlan } from "@/lib/bridge";
 import { demoAnswerForBridge } from "@/lib/demo";
 import { useI18n } from "@/lib/i18n";
+import { useGapLabels } from "@/lib/gap-copy-keys";
 import {
   ASSESSMENT_CONFIG,
   analyzeGap,
@@ -38,6 +39,7 @@ import type { AnswerEvaluation, BridgeExercise } from "@/lib/types";
 export default function BridgePage() {
   const { state, patch, hydrated } = useSession();
   const { t, locale } = useI18n();
+  const gapLabels = useGapLabels();
   const router = useRouter();
   const topic = findTopic(state.topicId, locale);
 
@@ -195,7 +197,7 @@ export default function BridgePage() {
   return (
     <div className="space-y-8">
       <StepProgress
-        eyebrow={`${t.bridgePracticeLabel} · ${gapLevel} ${t.pts}`}
+        eyebrow={`${t.bridgePracticeLabel} · ${gapLabels[gapLevel]}`}
         title={`${t.targetedPractice} · ${topic.title}`}
         step={Math.min(attemptCount + 1, Math.max(exercises.length, 1))}
         total={Math.max(exercises.length, 1)}
@@ -300,8 +302,7 @@ export default function BridgePage() {
             <SectionLabel>{t.bridgeComplete}</SectionLabel>
             <CardTitle>{t.measureAgainTitle}</CardTitle>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              {t.measureAgainBody(exercises.length)}{" "}
-              {t.measureAgainNote}
+              {t.measureAgainBody(exercises.length)}
             </p>
             <p className="text-sm leading-relaxed text-muted-foreground">
               {[...new Set(exercises.map((exercise) => exercise.skill))].join(", ")}

@@ -69,7 +69,7 @@ export async function gradeWithAi(request: GradeRequest): Promise<GradeOutcome> 
       rubric: request.rubric,
     }),
     schema: evaluationResponseSchema,
-    maxTokens: 700,
+    maxTokens: 1200,
     locale,
   });
 
@@ -132,8 +132,11 @@ export async function generateBridgeWithAi(
       count: request.count,
     }),
     schema: generatedExerciseBatchSchema,
-    maxTokens: 2200,
+    maxTokens: 4000,
     temperature: 0.6,
+    // Generating three full exercises is the heaviest AI task in the product;
+    // give it its own budget instead of the 15 s grading default.
+    timeoutMs: 30_000,
     locale,
   });
 

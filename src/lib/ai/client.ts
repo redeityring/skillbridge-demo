@@ -94,9 +94,18 @@ function recordAiSuccess(model: string): void {
 function friendlyError(status: number, detail: string, locale: Locale): string {
   // Keep the provider's own words in the server log, never in the UI.
   console.warn(`[skillbridge] AI provider responded ${status}: ${detail.slice(0, 500)}`);
+  // A 429 can mean two very different things, and the honest distinction is
+  // user-facing: the account's *daily* free-tier quota (resets at 00:00 UTC,
+  // nothing anyone can do right now) versus momentary model overload (retry
+  // another model in the chain and it usually works).
+  const isDailyQuota =
+    status === 429 &&
+    (detail.includes("free-models-per-day") || detail.includes("free_tier_daily"));
   if (locale === "ru") {
     if (status === 401 || status === 403) return "AI-провайдер отклонил настроенный API-ключ.";
     if (status === 402) return "У аккаунта AI-провайдера закончились кредиты.";
+    if (status === 429 && isDailyQuota)
+      return "Дневной лимит бесплатных AI-запросов для этого ключа исчерпан (обновляется в 00:00 UTC).";
     if (status === 429) return "Все бесплатные AI-модели сейчас перегружены (лимит запросов).";
     if (status === 404) return "Ни одна из настроенных AI-моделей не найдена у провайдера.";
     if (status >= 500) return "AI-провайдер временно недоступен.";
@@ -104,6 +113,8 @@ function friendlyError(status: number, detail: string, locale: Locale): string {
   }
   if (status === 401 || status === 403) return "The AI provider rejected the configured API key.";
   if (status === 402) return "The AI provider account has no available credits.";
+  if (status === 429 && isDailyQuota)
+    return "The daily free-tier AI request quota for this key is used up (resets at 00:00 UTC).";
   if (status === 429) return "Every free AI model is rate-limited right now.";
   if (status === 404) return "None of the configured AI models were found on this provider.";
   if (status >= 500) return "The AI provider is temporarily unavailable.";
@@ -161,26 +172,25 @@ type ProviderPreset = {
  * avoid a guaranteed 400 where it does not.
  */
 const OPENROUTER_FREE_MODELS: AiModel[] = [
-  // Strongest measured reasoning of the free set; 262k context.
-  { id: "qwen/qwen3.8-27b:free", jsonMode: false },
-  // 120B MoE with native structured output; 262k context.
+  // 120B MoE with native structured output; 262k context. Verified live:
+  // grades a full answer in ~3–4 s with reasoning disabled.
   { id: "nvidia/nemotron-3-super-120b-a12b:free", jsonMode: true },
+  // 512k-context preview MoE with structured output. Verified live: ~1.5 s.
+  { id: "dots-studio/dots-3-note-preview:free", jsonMode: true },
   // Dense 31B from Google; dependable instruction following + structured output.
   { id: "google/gemma-4-31b-it:free", jsonMode: true },
-  // Very strong reasoning, smaller 32k window — ample for these prompts.
-  { id: "z-ai/glm-5.2:free", jsonMode: false },
-  // (Removed: thinkingmachines/inkling:free — gated to agentic harnesses, 403s
-  // unconditionally for plain API calls, so it only added dead latency.)
   // Fast MoE with structured output.
   { id: "google/gemma-4-26b-a4b-it:free", jsonMode: true },
-  // Pro-tier NEX with structured output.
-  { id: "nex-agi/nex-n2.5-pro:free", jsonMode: true },
-  // 512k context preview model with structured output.
-  { id: "dots-studio/dots-3-note-preview:free", jsonMode: true },
-  // 1M-context large model; no structured output declared.
-  { id: "thinkingmachines/inkling:free", jsonMode: false },
+  // Very strong reasoning, smaller 32k window — ample for these prompts.
+  { id: "z-ai/glm-5.2:free", jsonMode: false },
+  // Strongest measured reasoning of the free set; 262k context.
+  { id: "qwen/qwen3.8-27b:free", jsonMode: false },
   // 550B MoE, 1M context — big spare tyre, no structured output declared.
   { id: "nvidia/nemotron-3-ultra-550b-a55b:free", jsonMode: false },
+  // (Removed: thinkingmachines/inkling:free — gated to agentic harnesses, 403s
+  // unconditionally for plain API calls; nex-agi/nex-n2.5-pro:free — hung
+  // without any response for 14 s+ during live testing. Both only added dead
+  // latency between the models that actually work.)
 ];
 
 /**
@@ -430,12 +440,21 @@ async function attempt(
         }
       : { model: candidate.id }),
     temperature: options.temperature ?? 0.2,
-    max_tokens: options.maxTokens ?? 900,
+    max_tokens: options.maxTokens ?? 1200,
     messages: [
       { role: "system", content: options.system },
       { role: "user", content: options.user },
     ],
   };
+
+  // Free reasoning models burn their token budget (and our attempt deadline)
+  // on hidden chain-of-thought before ever writing the JSON they were asked
+  // for — measured live: 780+ reasoning tokens, answer truncated at the
+  // token limit, every attempt timing out. These tasks are short structured
+  // judgments, so thinking is disabled for the whole chain. Verified live on
+  // OpenRouter that `reasoning: {enabled:false}` is accepted by every model
+  // in this list and cuts a graded answer from timeout (>15 s) to ~3 s.
+  body.reasoning = { enabled: false };
 
   // `response_format` only when the model itself declares support.
   if (!asArray && candidate.jsonMode) {
@@ -468,6 +487,14 @@ async function attempt(
       }
 
       const message = friendlyError(response.status, detail, options.locale ?? "en");
+      // A daily-quota 429 is account-wide: no other model in the chain can
+      // lift it, so walking the rest would only burn seconds of the budget.
+      if (
+        response.status === 429 &&
+        (detail.includes("free-models-per-day") || detail.includes("free_tier_daily"))
+      ) {
+        return { status: "stop", message };
+      }
       // 4xx (other than 429) mean this request will never succeed as written;
       // 429 and 5xx are worth trying against a different model.
       if (response.status === 429 || response.status >= 500) {
@@ -525,11 +552,12 @@ export async function chatJson<S extends z.ZodType>(
 
   let lastMessage = "AI provider unavailable.";
 
-  // Whole-chain deadline. The client aborts grading requests at 30 s, so the
-  // server must give up before that — otherwise the learner sees a network
-  // error instead of the honest "scored by the local rubric" notice. Budget:
-  // the first attempt's timeout plus a fixed reserve for the rest of the chain.
-  const chainDeadline = Date.now() + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS) + 10_000;
+  // Whole-chain deadline. The client never aborts these requests, but Vercel
+  // caps a serverless invocation, so the server must give up in time —
+  // otherwise the learner sees a network error instead of the honest "scored
+  // by the local rubric" notice. Budget: the first attempt's timeout plus a
+  // reserve for the rest of the chain.
+  const chainDeadline = Date.now() + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS) + 25_000;
 
   const finish = (content: string, model: string): ChatJsonResult<z.infer<S>> | null => {
     const parsed = extractJson(content);
@@ -563,10 +591,13 @@ export async function chatJson<S extends z.ZodType>(
       recordAiFailure(outcome.message);
       return { ok: false, error: outcome.message };
     } else {
-      // The provider already failed over across the whole list, so re-walking
-      // it one model at a time would only add latency before we give up.
-      recordAiFailure(outcome.message);
-      return { ok: false, error: outcome.message };
+      // A 429/5xx on the grouped request only means these first models are
+      // saturated or the grouped route itself hiccuped — the rest of the chain
+      // sits on different upstream infrastructure and may be perfectly free.
+      // Keep the message as the last-resort error, then fall through to the
+      // model-by-model walk below instead of giving up here.
+      console.warn(`[skillbridge] grouped request failed (${outcome.message}); walking the chain individually.`);
+      lastMessage = outcome.message;
     }
   }
 
@@ -579,11 +610,11 @@ export async function chatJson<S extends z.ZodType>(
       console.warn("[skillbridge] chain deadline reached; falling back to the local engine.");
       break;
     }
-      // No single attempt may eat the whole budget: cap it so at least two
+    // No single attempt may eat the whole budget: cap it so at least two
     // models get their chance even when the first one hangs.
     const attemptOptions = {
       ...options,
-      timeoutMs: Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, remaining, 12_000),
+      timeoutMs: Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, remaining, 25_000),
     };
     const outcome = await attempt(config, candidate, attemptOptions, false);
 

@@ -6,6 +6,9 @@ import { getTopic } from "@/content";
 import { evaluateAnswer } from "@/lib/rubric";
 import type { ApplicationOption, Rubric, TopicId } from "@/lib/types";
 
+/** Vercel serverless limit (s). The AI chain must always finish inside it. */
+export const maxDuration = 60;
+
 /**
  * Grades one written answer.
  *

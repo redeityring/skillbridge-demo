@@ -115,6 +115,7 @@ export const en: Dictionary = {
   measureAgainTitle: "Now let's measure it again",
   measureAgainBody: (n) =>
     `You practised ${n} task${n === 1 ? "" : "s"}. The next step uses scenarios you have not seen, so the improvement is measured — not assumed.`,
+  // (Legacy duplicate of the sentence above, kept only as an unused key.)
   measureAgainNote:
     "The next step uses scenarios you have not seen, so the improvement is measured — not assumed.",
   reassessApplication: "Reassess my application",
@@ -183,6 +184,7 @@ export const en: Dictionary = {
   bridgeSkipped: "Bridge practice was skipped in this run.",
   gapAtDiagnosis: "Gap at diagnosis",
   pts: "pts",
+  ptsUnit: "pts",
   allTopics: "All assessed topics",
   realResults: "Real results from this browser. Nothing is estimated.",
   runNotFinishedBody: "The before-and-after comparison appears after a full loop.",

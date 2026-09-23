@@ -35,7 +35,7 @@ export function BeforeAfterPanel({
             <SectionLabel>{t.applicationAbility}</SectionLabel>
             <p className="text-sm text-muted-foreground">{t.measuredAfterBridging}</p>
           </div>
-          <DeltaChip delta={delta} size="lg" />
+          <DeltaChip delta={delta} size="lg" unit={t.ptsUnit} />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -46,6 +46,7 @@ export function BeforeAfterPanel({
         <div className="border-t border-white/60 pt-5">
           <ComparisonChart
             ariaLabel={t.comparisonLegend(Math.round(before), t.before)}
+            comparisonLegend={t.comparisonLegend}
             reference={{ value: before, label: t.before }}
             items={[
               { label: t.before, value: before, tone: "danger" },
