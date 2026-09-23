@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { Badge, StatusDot } from "@/components/ui/badge";
 import { useSession } from "@/components/session-provider";
+import { useI18n } from "@/lib/i18n";
 
 interface AiStatus {
   available: boolean;
@@ -20,6 +21,7 @@ interface AiStatus {
  */
 export function EngineBadge() {
   const { state } = useSession();
+  const { t } = useI18n();
   const [status, setStatus] = useState<AiStatus | null>(null);
 
   useEffect(() => {
@@ -39,12 +41,9 @@ export function EngineBadge() {
 
   if (state.demoMode) {
     return (
-      <Badge
-        tone="warning"
-        title="Demo mode: scripted answers, scored by the local rubric engine. No AI calls are made."
-      >
+      <Badge tone="warning" title={t.engineDemoTitle}>
         <StatusDot tone="warning" />
-        Demo mode
+        {t.engineDemo}
       </Badge>
     );
   }
@@ -53,24 +52,24 @@ export function EngineBadge() {
     return (
       <Badge tone="neutral">
         <StatusDot tone="neutral" />
-        Checking engine…
+        {t.engineChecking}
       </Badge>
     );
   }
 
   if (status.available) {
     return (
-      <Badge tone="primary" title={`Answers are graded by ${status.providerLabel} (${status.model}).`}>
+      <Badge tone="primary" title={t.engineLiveTitle}>
         <StatusDot tone="primary" />
-        Live AI · {status.model}
+        {t.engineLive} · {status.model}
       </Badge>
     );
   }
 
   return (
-    <Badge tone="neutral" title={status.reason ?? undefined}>
+    <Badge tone="neutral" title={t.engineLocalTitle}>
       <StatusDot tone="neutral" />
-      Local rubric engine
+      {t.engineLocal}
     </Badge>
   );
 }

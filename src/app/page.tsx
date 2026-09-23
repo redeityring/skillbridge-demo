@@ -8,8 +8,9 @@ import { useSession } from "@/components/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClass } from "@/components/ui/button";
 import { Card, SectionLabel } from "@/components/ui/card";
-import { TOPICS } from "@/content/economics";
+import { getTopics } from "@/content";
 import { DEMO_TOPIC_ID } from "@/lib/demo";
+import { useI18n } from "@/lib/i18n";
 import { latestProgressByTopic } from "@/lib/session";
 import type { Topic, TopicProgress } from "@/lib/types";
 
@@ -21,7 +22,10 @@ import type { Topic, TopicProgress } from "@/lib/types";
  */
 export default function HomePage() {
   const { state, startRun, reset, hydrated } = useSession();
+  const { t, locale } = useI18n();
   const router = useRouter();
+
+  const topics = getTopics(locale);
 
   const startFresh = useCallback(() => {
     reset();
@@ -51,13 +55,12 @@ export default function HomePage() {
         <Card variant="glassAccent" className="px-6 py-8 sm:px-10 sm:py-11">
           <div className="space-y-7">
             <div className="space-y-4">
-              <SectionLabel>Economics · diagnostic</SectionLabel>
+              <SectionLabel>{t.homeEyebrow}</SectionLabel>
               <h1 className="max-w-2xl text-4xl font-semibold leading-[1.08] tracking-[-0.035em] text-foreground sm:text-5xl">
-                From knowing to <span className="gradient-text">applying.</span>
+                {t.homeTitle1} <span className="gradient-text">{t.homeTitleAccent}</span>
               </h1>
               <p className="max-w-xl text-base leading-relaxed text-muted-foreground">
-                SkillBridge measures the gap between what you understand and what you can
-                actually apply — then builds the practice that closes it.
+                {t.homeSubtitle}
               </p>
             </div>
 
@@ -71,11 +74,11 @@ export default function HomePage() {
                   href="/diagnostic"
                   className={buttonClass({ size: "lg", className: "w-full sm:w-auto" })}
                 >
-                  Resume diagnostic
+                  {t.homeResume}
                 </Link>
               ) : (
                 <Button size="lg" className="w-full sm:w-auto" onClick={startFresh}>
-                  Start Diagnostic
+                  {t.homeStart}
                 </Button>
               )}
               <Button
@@ -84,14 +87,16 @@ export default function HomePage() {
                 className="w-full sm:w-auto"
                 onClick={runDemo}
               >
-                Run demo
+                {t.homeDemo}
               </Button>
             </div>
 
             <p className="max-w-xl text-xs leading-relaxed text-subtle-foreground">
-              The diagnostic takes about two minutes: four theory questions, then three
-              application scenarios. <span className="text-muted-foreground">Run demo</span> uses
-              scripted answers so the whole loop can be shown in under a minute.
+              {t.homeHint}{" "}
+              <span className="text-muted-foreground">
+                {t.homeHintDemoLead}
+                {t.homeHintDemoRest}
+              </span>
             </p>
           </div>
         </Card>
@@ -100,21 +105,23 @@ export default function HomePage() {
       <section className="space-y-4">
         <div className="flex items-end justify-between gap-4">
           <div className="space-y-1">
-            <SectionLabel>Your learning</SectionLabel>
+            <SectionLabel>{t.homeYourLearning}</SectionLabel>
             <p className="text-sm text-muted-foreground">
-              {historySummary(hydrated ? latest.size : 0)}
+              {latest.size === 0
+                ? t.homeNoResults
+                : `${t.homeTopicsAssessed(latest.size, topics.length)} ${t.homeResultsNote}`}
             </p>
           </div>
           <Link
             href="/progress"
             className="shrink-0 whitespace-nowrap text-sm font-medium text-primary underline-offset-4 hover:underline"
           >
-            View progress
+            {t.homeViewProgress}
           </Link>
         </div>
 
         <ul className="grid gap-3">
-          {TOPICS.map((topic) => (
+          {topics.map((topic) => (
             <TopicRow
               key={topic.id}
               topic={topic}
@@ -132,16 +139,16 @@ export default function HomePage() {
       <section className="grid gap-4 [&>*]:min-w-0 sm:grid-cols-3">
         {[
           {
-            title: "Measure",
-            body: "Theory questions and application scenarios are scored separately, so the two abilities never blur together.",
+            title: t.homeStep1,
+            body: t.homeStep1Body,
           },
           {
-            title: "Detect the gap",
-            body: "SkillBridge compares the two scores and isolates which micro-skills the learner cannot yet transfer.",
+            title: t.homeStep2,
+            body: t.homeStep2Body,
           },
           {
-            title: "Bridge it",
-            body: "Targeted practice is generated for exactly those skills, then application is re-measured on a new scenario.",
+            title: t.homeStep3,
+            body: t.homeStep3Body,
           },
         ].map((step, index) => (
           <Card key={step.title} variant="glass" className="p-5">
@@ -161,13 +168,6 @@ export default function HomePage() {
   );
 }
 
-function historySummary(assessedTopics: number): string {
-  if (assessedTopics === 0) {
-    return "Nothing assessed yet. Your results appear here after a diagnostic.";
-  }
-  return `${assessedTopics} of ${TOPICS.length} topics assessed. Scores are your own results.`;
-}
-
 function TopicRow({
   topic,
   progress,
@@ -179,6 +179,8 @@ function TopicRow({
   onStart: () => void;
   active: boolean;
 }) {
+  const { t } = useI18n();
+
   return (
     <Card as="li" className="transition-colors hover:border-border-strong">
       <div className="flex flex-wrap items-center justify-between gap-5 px-5 py-4">
@@ -187,7 +189,7 @@ function TopicRow({
             <p className="text-sm font-semibold tracking-[-0.01em] text-foreground">
               {topic.title}
             </p>
-            {active ? <Badge tone="primary">In progress</Badge> : null}
+            {active ? <Badge tone="primary">{t.homeInProgress}</Badge> : null}
           </div>
           <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
             {topic.tagline}
@@ -202,16 +204,16 @@ function TopicRow({
               </p>
               <p className="text-xs text-subtle-foreground">
                 {progress.afterScore !== null
-                  ? `application · was ${progress.applicationScore}%`
-                  : "application"}
+                  ? t.homeApplicationWas(progress.applicationScore)
+                  : t.homeApplication}
               </p>
             </div>
           ) : (
-            <p className="text-sm text-subtle-foreground">Not assessed</p>
+            <p className="text-sm text-subtle-foreground">{t.homeNotAssessed}</p>
           )}
 
           <Button variant="secondary" size="sm" onClick={onStart}>
-            {progress ? "Retake" : "Assess"}
+            {progress ? t.homeRetake : t.homeAssess}
           </Button>
         </div>
       </div>

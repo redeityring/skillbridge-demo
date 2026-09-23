@@ -13,13 +13,15 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { OptionGroup } from "@/components/ui/option-button";
 import { StepProgress } from "@/components/ui/progress-bar";
 import { TextArea } from "@/components/ui/textarea";
-import { TOPICS, findTopic } from "@/content/economics";
+import { findTopic, getTopics } from "@/content";
+import type { TopicId } from "@/lib/types";
 import { gradeAnswer } from "@/lib/api-client";
 import {
   DEMO_TOPIC_ID,
   demoAnswerForApplication,
   demoAnswerForTheory,
 } from "@/lib/demo";
+import { useI18n } from "@/lib/i18n";
 import { evaluateAnswer } from "@/lib/rubric";
 import { pickTheoryQuestions, splitApplicationQuestions } from "@/lib/scoring";
 import type { AnswerEvaluation, TheoryQuestion, ApplicationQuestion } from "@/lib/types";
@@ -34,8 +36,9 @@ import type { AnswerEvaluation, TheoryQuestion, ApplicationQuestion } from "@/li
  */
 export default function DiagnosticPage() {
   const { state, patch, startRun, hydrated } = useSession();
+  const { t, locale } = useI18n();
   const router = useRouter();
-  const topic = findTopic(state.topicId);
+  const topic = findTopic(state.topicId, locale);
 
   const theory = useMemo(
     () => (topic ? pickTheoryQuestions(topic.theoryQuestions) : []),
@@ -94,11 +97,11 @@ export default function DiagnosticPage() {
     const prefill = state.demoMode
       ? phase === "theory"
         ? demoAnswerForTheory(activeId)
-        : demoAnswerForApplication(activeId)
+        : demoAnswerForApplication(activeId, locale)
       : null;
     setSelected(prefill?.optionId ?? null);
     setReasoning(prefill?.reasoning ?? "");
-  }, [activeId, phase, state.demoMode, hydrated]);
+  }, [activeId, phase, state.demoMode, hydrated, locale]);
 
   const answerTheory = useCallback(() => {
     if (!currentTheory || !selected) return;
@@ -122,6 +125,7 @@ export default function DiagnosticPage() {
       rubric: currentApplication.rubric,
       answer: { optionId: selected, reasoning },
       demoMode: state.demoMode,
+      locale,
     });
     patch({
       applicationAnswers: {
@@ -135,7 +139,7 @@ export default function DiagnosticPage() {
     });
     setEvaluation(result);
     setSubmitting(false);
-  }, [currentApplication, topic, selected, reasoning, state.demoMode, state.applicationAnswers, state.applicationEvaluations, patch]);
+  }, [currentApplication, topic, selected, reasoning, state.demoMode, locale, state.applicationAnswers, state.applicationEvaluations, patch]);
 
   const nextApplication = useCallback(() => {
     setEvaluation(null);
@@ -154,21 +158,22 @@ export default function DiagnosticPage() {
     const applicationAnswers = { ...state.applicationAnswers };
     const applicationEvaluations = { ...state.applicationEvaluations };
     for (const question of application) {
-      const prefill = demoAnswerForApplication(question.id);
+      const prefill = demoAnswerForApplication(question.id, locale);
       if (!prefill) continue;
       applicationAnswers[question.id] = prefill;
       applicationEvaluations[question.id] = evaluateAnswer(
         question.options,
         question.rubric,
         prefill,
+        locale,
       );
     }
     patch({ theoryAnswers, applicationAnswers, applicationEvaluations });
     router.push("/gap");
-  }, [topic, theory, application, state.theoryAnswers, state.applicationAnswers, state.applicationEvaluations, patch, router]);
+  }, [topic, theory, application, locale, state.theoryAnswers, state.applicationAnswers, state.applicationEvaluations, patch, router]);
 
   if (!hydrated) {
-    return <LoadingState title="Loading your session…" messages={["Restoring your answers…"]} />;
+    return <LoadingState title={t.loadingSession} messages={[t.loadingRestoring]} />;
   }
 
   if (!topic) {
@@ -187,19 +192,16 @@ export default function DiagnosticPage() {
     <div className="space-y-8">
       <div className="space-y-4">
         <StepProgress
-          eyebrow={`${topic.subjectLabel} · ${phase === "theory" ? "theory" : "application"}`}
+          eyebrow={`${topic.subjectLabel} · ${phase === "theory" ? t.theory : t.application}`}
           title={topic.title}
           step={step}
           total={total}
         />
         {state.demoMode ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning-border bg-warning-subtle px-4 py-3">
-            <p className="text-xs leading-relaxed text-warning-strong">
-              Demo mode — answers are scripted and scored locally, so the run is deterministic and
-              works without network access.
-            </p>
+            <p className="text-xs leading-relaxed text-warning-strong">{t.demoNotice}</p>
             <Button size="sm" variant="secondary" onClick={fastForward}>
-              Skip to results
+              {t.skipToResults}
             </Button>
           </div>
         ) : null}
@@ -209,7 +211,7 @@ export default function DiagnosticPage() {
         <Card className="animate-fade-up">
           <div className="space-y-5 px-6 py-6">
             <div className="flex flex-wrap items-center gap-2">
-              <SectionLabel>Theory</SectionLabel>
+              <SectionLabel>{t.theory === "теория" ? "Теория" : "Theory"}</SectionLabel>
               <Badge tone="neutral">{currentTheory.skill}</Badge>
             </div>
             <h2 className="text-lg font-semibold leading-snug tracking-[-0.02em] text-foreground">
@@ -217,7 +219,7 @@ export default function DiagnosticPage() {
             </h2>
             <OptionGroup
               name={currentTheory.id}
-              legend="Choose an answer"
+              legend={t.chooseAnswer}
               options={currentTheory.options.map((option) => ({
                 id: option.id,
                 label: option.label,
@@ -228,10 +230,10 @@ export default function DiagnosticPage() {
           </div>
           <CardFooter>
             <Button onClick={answerTheory} disabled={!selected}>
-              {theoryIndex + 1 < theory.length ? "Continue" : "Continue to application"}
+              {theoryIndex + 1 < theory.length ? t.continueLabel : t.continueToApplication}
             </Button>
             <span className="text-xs text-subtle-foreground">
-              {selected ? "Answer recorded. Continue when ready." : "Choose an answer."}
+              {selected ? t.answerRecorded : t.chooseAnswer}
             </span>
           </CardFooter>
         </Card>
@@ -239,15 +241,15 @@ export default function DiagnosticPage() {
 
       {phase === "application" && currentApplication ? (
         evaluation ? (
-          <FeedbackCard evaluation={evaluation} title="Answer scored">
+          <FeedbackCard evaluation={evaluation} title={t.answerScored}>
             <Button onClick={nextApplication}>
-              {appIndex + 1 < application.length ? "Next scenario" : "See my results"}
+              {appIndex + 1 < application.length ? t.nextScenario : t.seeMyResults}
             </Button>
           </FeedbackCard>
         ) : (
           <div className="space-y-4">
             <ScenarioBlock
-              eyebrow="Application challenge"
+              eyebrow={t.appChallenge}
               skill={currentApplication.skill}
               title={currentApplication.title}
               scenario={currentApplication.scenario}
@@ -257,7 +259,7 @@ export default function DiagnosticPage() {
               <div className="space-y-5">
                 <OptionGroup
                   name={currentApplication.id}
-                  legend="Choose an answer"
+                  legend={t.chooseAnswer}
                   options={currentApplication.options.map((option) => ({
                     id: option.id,
                     label: option.label,
@@ -269,9 +271,9 @@ export default function DiagnosticPage() {
                   label={currentApplication.reasoningPrompt}
                   value={reasoning}
                   onChange={setReasoning}
-                  placeholder="Two or three sentences is enough."
+                  placeholder={t.placeholder}
                   minWords={15}
-                  helper="Your reasoning is what SkillBridge measures — not just your choice."
+                  helper={t.reasoningHelper}
                 />
               </div>
             </ScenarioBlock>
@@ -283,12 +285,10 @@ export default function DiagnosticPage() {
                 loading={submitting}
                 disabled={!selected || reasoning.trim().length < 3}
               >
-                Submit answer
+                {t.submitAnswer}
               </Button>
               <span className="text-xs text-subtle-foreground">
-                {!selected
-                  ? "Pick the alternative you think is strongest."
-                  : "Explain your reasoning, then submit."}
+                {!selected ? t.pickStrongest : t.explainThenSubmit}
               </span>
             </div>
           </div>
@@ -303,25 +303,25 @@ export default function DiagnosticPage() {
 function TopicChooser({
   onSelect,
 }: {
-  onSelect: (topicId: (typeof TOPICS)[number]["id"], demo: boolean) => void;
+  onSelect: (topicId: TopicId, demo: boolean) => void;
 }) {
   const router = useRouter();
+  const { t, locale } = useI18n();
 
   return (
     <div className="space-y-8">
       <div className="space-y-3">
-        <SectionLabel>Start diagnostic</SectionLabel>
+        <SectionLabel>{t.startDiagnostic}</SectionLabel>
         <h1 className="text-3xl font-semibold tracking-[-0.03em] text-foreground">
-          Choose a topic
+          {t.chooseTopic}
         </h1>
         <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-          Each diagnostic takes about two minutes: four theory questions, then three application
-          scenarios that test whether you can transfer the concept to a new situation.
+          {t.chooseTopicIntro}
         </p>
       </div>
 
       <ul className="grid gap-3">
-        {TOPICS.map((item) => (
+        {getTopics(locale).map((item) => (
           <Card as="li" key={item.id} className="transition-colors hover:border-border-strong">
             <div className="flex flex-wrap items-center justify-between gap-5 px-5 py-4">
               <div className="min-w-0 space-y-1">
@@ -338,7 +338,7 @@ function TopicChooser({
                   onSelect(item.id, false);
                 }}
               >
-                Start
+                {t.start}
               </Button>
             </div>
           </Card>
@@ -351,14 +351,14 @@ function TopicChooser({
           size="sm"
           onClick={() => onSelect(DEMO_TOPIC_ID, true)}
         >
-          Run demo instead
+          {t.runDemoInstead}
         </Button>
         <button
           type="button"
           onClick={() => router.push("/")}
           className="text-sm text-subtle-foreground underline-offset-4 hover:underline"
         >
-          Back home
+          {t.backHome}
         </button>
       </div>
     </div>

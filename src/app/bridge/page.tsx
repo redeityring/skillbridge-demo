@@ -13,10 +13,11 @@ import { ErrorNotice, LoadingState } from "@/components/ui/loading-state";
 import { OptionGroup } from "@/components/ui/option-button";
 import { StepProgress } from "@/components/ui/progress-bar";
 import { TextArea } from "@/components/ui/textarea";
-import { findTopic } from "@/content/economics";
+import { findTopic } from "@/content";
 import { gradeAnswer, requestBridgeExercises } from "@/lib/api-client";
 import { buildBridgePlan, type BridgePlan } from "@/lib/bridge";
 import { demoAnswerForBridge } from "@/lib/demo";
+import { useI18n } from "@/lib/i18n";
 import {
   ASSESSMENT_CONFIG,
   analyzeGap,
@@ -36,8 +37,9 @@ import type { AnswerEvaluation, BridgeExercise } from "@/lib/types";
  */
 export default function BridgePage() {
   const { state, patch, hydrated } = useSession();
+  const { t, locale } = useI18n();
   const router = useRouter();
-  const topic = findTopic(state.topicId);
+  const topic = findTopic(state.topicId, locale);
 
   const theory = useMemo(
     () => (topic ? pickTheoryQuestions(topic.theoryQuestions) : []),
@@ -95,9 +97,10 @@ export default function BridgePage() {
       plan,
       count: ASSESSMENT_CONFIG.bridgeExerciseCount,
       demoMode: state.demoMode,
+      locale,
     });
     if (result.exercises.length === 0) {
-      setFailed("Could not build practice tasks. You can still be reassessed.");
+      setFailed(t.buildFailed);
       setGenerating(false);
       return;
     }
@@ -105,7 +108,7 @@ export default function BridgePage() {
     setSource(result.source);
     setNotice(result.notice);
     setGenerating(false);
-  }, [topic, state.runId, state.demoMode, gapLevel, plan, patch]);
+  }, [topic, state.runId, state.demoMode, gapLevel, plan, locale, t.buildFailed, patch]);
 
   /* Generate once, unless this run already has exercises from an earlier load. */
   useEffect(() => {
@@ -137,10 +140,10 @@ export default function BridgePage() {
   const activeId = current?.id ?? null;
   useEffect(() => {
     if (!hydrated || !activeId) return;
-    const prefill = state.demoMode ? demoAnswerForBridge(activeId) : null;
+    const prefill = state.demoMode ? demoAnswerForBridge(activeId, locale) : null;
     setSelected(prefill?.optionId ?? null);
     setReasoning(prefill?.reasoning ?? "");
-  }, [activeId, state.demoMode, hydrated]);
+  }, [activeId, state.demoMode, hydrated, locale]);
 
   const submit = useCallback(async () => {
     if (!current || !topic || !selected) return;
@@ -158,6 +161,7 @@ export default function BridgePage() {
       rubric: current.rubric,
       answer: { optionId: selected, reasoning },
       demoMode: state.demoMode,
+      locale,
     });
     patch({
       bridgeAttempts: [
@@ -167,24 +171,22 @@ export default function BridgePage() {
     });
     setEvaluation(result);
     setSubmitting(false);
-  }, [current, topic, selected, reasoning, state.demoMode, state.bridgeAttempts, patch]);
+  }, [current, topic, selected, reasoning, state.demoMode, locale, state.bridgeAttempts, patch]);
 
   const next = useCallback(() => {
     setEvaluation(null);
   }, []);
 
   if (!hydrated) {
-    return <LoadingState title="Loading bridge practice…" messages={["Restoring your session…"]} />;
+    return <LoadingState title={t.loadingSession} messages={[t.loadingRestoring]} />;
   }
 
   if (!topic) {
     return (
       <Card className="p-6">
-        <p className="text-sm text-muted-foreground">
-          No topic selected. Start with a diagnostic first.
-        </p>
+        <p className="text-sm text-muted-foreground">{t.noReassessment}</p>
         <div className="mt-4">
-          <Button onClick={() => router.push("/diagnostic")}>Start diagnostic</Button>
+          <Button onClick={() => router.push("/diagnostic")}>{t.startDiagnostic}</Button>
         </div>
       </Card>
     );
@@ -193,8 +195,8 @@ export default function BridgePage() {
   return (
     <div className="space-y-8">
       <StepProgress
-        eyebrow={`Bridge practice · ${gapLevel} gap`}
-        title={`Strengthen: ${topic.title}`}
+        eyebrow={`${t.bridgePracticeLabel} · ${gapLevel} ${t.pts}`}
+        title={`${t.targetedPractice} · ${topic.title}`}
         step={Math.min(attemptCount + 1, Math.max(exercises.length, 1))}
         total={Math.max(exercises.length, 1)}
       />
@@ -203,19 +205,17 @@ export default function BridgePage() {
 
       {source ? (
         <p className="text-xs leading-relaxed text-subtle-foreground">
-          {source === "ai"
-            ? "Practice generated for the skills that lost points in your diagnostic."
-            : "Practice selected from the curated bank for the skills that lost points in your diagnostic."}
+          {source === "ai" ? t.bridgeNoticeAI : t.bridgeNoticeBank}
         </p>
       ) : null}
 
       {generating ? (
         <LoadingState
-          title="Building your practice…"
+          title={t.buildingPractice}
           messages={[
-            `Targeting: ${plan.targetSkills[0] ?? "your weakest skill"}…`,
-            "Writing a new scenario…",
-            "Calibrating the difficulty…",
+            t.targeting(plan.targetSkills[0] ?? "—"),
+            t.writingScenario,
+            t.calibrating,
           ]}
         />
       ) : null}
@@ -224,7 +224,7 @@ export default function BridgePage() {
         <Card className="space-y-4 p-6">
           <p className="text-sm text-muted-foreground">{failed}</p>
           <Button variant="secondary" onClick={() => void generate()}>
-            Try again
+            {t.tryAgain}
           </Button>
         </Card>
       ) : null}
@@ -232,9 +232,9 @@ export default function BridgePage() {
       {!generating && current && !evaluation ? (
         <div className="space-y-4">
           <ScenarioBlock
-            eyebrow={`Challenge ${attemptCount + 1} of ${exercises.length}`}
+            eyebrow={`${t.challenge} ${attemptCount + 1} / ${exercises.length}`}
             skill={current.skill}
-            title={`Targeted practice · ${current.skill}`}
+            title={`${t.targetedPractice} · ${current.skill}`}
             scenario={current.scenario}
             decisionPrompt={current.decisionPrompt}
             badge={
@@ -246,7 +246,7 @@ export default function BridgePage() {
             <div className="space-y-5">
               <OptionGroup
                 name={current.id}
-                legend="Choose an answer"
+                legend={t.chooseAnswer}
                 options={current.options.map((option) => ({
                   id: option.id,
                   label: option.label,
@@ -258,12 +258,12 @@ export default function BridgePage() {
                 label={current.reasoningPrompt}
                 value={reasoning}
                 onChange={setReasoning}
-                placeholder="Two or three sentences is enough."
+                placeholder={t.placeholder}
                 minWords={15}
               />
               <details className="rounded-md border border-border bg-surface-muted px-4 py-3">
                 <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
-                  Need a hint?
+                  {t.needHint}
                 </summary>
                 <p className="pt-2 text-sm leading-relaxed text-muted-foreground">{current.hint}</p>
               </details>
@@ -277,19 +277,19 @@ export default function BridgePage() {
               loading={submitting}
               disabled={!selected || reasoning.trim().length < 3}
             >
-              Check answer
+              {t.checkAnswer}
             </Button>
             <span className="text-xs text-subtle-foreground">
-              {selected ? "Now explain the trade-off in your own words." : "Choose an answer."}
+              {selected ? t.explainTradeOff : t.chooseAnswer}
             </span>
           </div>
         </div>
       ) : null}
 
       {evaluation ? (
-        <FeedbackCard evaluation={evaluation} title={lastAttempt?.exercise.skill ?? "Challenge"}>
+        <FeedbackCard evaluation={evaluation} title={lastAttempt?.exercise.skill ?? t.challenge}>
           <Button onClick={next}>
-            {remaining > 0 ? `Next challenge (${remaining} left)` : "Finish bridge practice"}
+            {remaining > 0 ? t.nextChallenge(remaining) : t.finishBridge}
           </Button>
         </FeedbackCard>
       ) : null}
@@ -297,20 +297,22 @@ export default function BridgePage() {
       {done && !evaluation ? (
         <Card className="animate-fade-up">
           <CardHeader>
-            <SectionLabel>Bridge complete</SectionLabel>
-            <CardTitle>Now let&apos;s measure it again</CardTitle>
+            <SectionLabel>{t.bridgeComplete}</SectionLabel>
+            <CardTitle>{t.measureAgainTitle}</CardTitle>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              You practised {exercises.length} task{exercises.length === 1 ? "" : "s"} targeting{" "}
-              {[...new Set(exercises.map((exercise) => exercise.skill))].join(", ")}. The next step
-              uses scenarios you have not seen, so the improvement is measured — not assumed.
+              {t.measureAgainBody(exercises.length)}{" "}
+              {t.measureAgainNote}
+            </p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              {[...new Set(exercises.map((exercise) => exercise.skill))].join(", ")}
             </p>
           </CardHeader>
           <div className="flex flex-wrap items-center gap-3 px-6 pb-5">
             <Button size="lg" onClick={() => router.push("/reassess")}>
-              Reassess my application
+              {t.reassessApplication}
             </Button>
             <Button variant="ghost" onClick={() => router.push("/gap")}>
-              Back to gap analysis
+              {t.backToGap}
             </Button>
           </div>
           <ul className="divide-y divide-border border-t border-border">

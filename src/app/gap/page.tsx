@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, SectionLabel } from "@/components/ui/card";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ProgressBar } from "@/components/ui/progress-bar";
-import { findTopic } from "@/content/economics";
+import { findTopic } from "@/content";
+import { useI18n } from "@/lib/i18n";
 import {
   analyzeGap,
   formatScore,
@@ -29,8 +30,9 @@ import {
  */
 export default function GapPage() {
   const { state, patch, hydrated } = useSession();
+  const { t, locale } = useI18n();
   const router = useRouter();
-  const topic = findTopic(state.topicId);
+  const topic = findTopic(state.topicId, locale);
 
   const theory = useMemo(
     () => (topic ? pickTheoryQuestions(topic.theoryQuestions) : []),
@@ -87,18 +89,18 @@ export default function GapPage() {
   ]);
 
   if (!hydrated || !topic || !hasResults) {
-    return <LoadingState title="Calculating your gap…" messages={["Comparing your answers…"]} />;
+    return <LoadingState title={t.gapLoadingTitle} messages={[t.gapLoadingMsg]} />;
   }
 
   return (
     <div className="space-y-8">
       <div className="space-y-3">
-        <SectionLabel>Your results</SectionLabel>
+        <SectionLabel>{t.yourResults}</SectionLabel>
         <h1 className="text-3xl font-semibold tracking-[-0.03em] text-foreground">
           {topic.title}
         </h1>
         <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-          Two abilities, measured separately on the same concept.
+          {t.twoAbilities}
         </p>
       </div>
 
@@ -111,15 +113,13 @@ export default function GapPage() {
               onClick={() => router.push("/bridge")}
               disabled={analysis.level === "low"}
             >
-              Bridge the gap
+              {t.bridgeTheGap}
             </Button>
             <Button variant="ghost" onClick={() => router.push("/diagnostic")}>
-              Back to diagnostic
+              {t.backToDiagnostic}
             </Button>
             {analysis.level === "low" ? (
-              <span className="text-xs text-subtle-foreground">
-                Understanding and application already align — bridge practice is optional.
-              </span>
+              <span className="text-xs text-subtle-foreground">{t.alignedNote}</span>
             ) : null}
           </>
         }
@@ -127,10 +127,9 @@ export default function GapPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Where the points went</CardTitle>
+          <CardTitle>{t.wherePointsWent}</CardTitle>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            {application.length} application scenarios, scored on concept recognition, reasoning
-            and context application.
+            {application.length} {t.scenariosScoredOn}
           </p>
         </CardHeader>
         <ul className="divide-y divide-border border-t border-border">
@@ -160,7 +159,7 @@ export default function GapPage() {
                 />
                 {chosen ? (
                   <p className="text-xs leading-relaxed text-muted-foreground">
-                    <span className="text-subtle-foreground">You chose: </span>
+                    <span className="text-subtle-foreground">{t.youChose}</span>
                     {chosen.label}
                   </p>
                 ) : null}

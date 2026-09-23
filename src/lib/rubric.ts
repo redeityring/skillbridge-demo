@@ -4,14 +4,19 @@
  * This is NOT fake AI output. It is a transparent rubric that scores the
  * learner's *actual* answer, and the UI always labels which engine produced a
  * score. It exists so the product keeps working — with real scoring — when the
- * AI provider is unreachable, rate-limited, slow, or deliberately bypassed
- * (demo mode).
+ * AI provider is unreachable, rate-limited or slow.
  *
  * It scores on exactly the same three dimensions as the AI grader, so the two
  * engines produce comparable numbers and progress stays meaningful if the app
  * switches engines mid-session.
+ *
+ * Locale-aware: Russian answers are scored against Russian rubrics with
+ * Cyrillic-preserving normalization, Russian stop words and Russian causal
+ * markers. Feedback templates come from the i18n dictionaries, so the engine
+ * never mixes languages in one evaluation.
  */
 
+import { getRubricDictionary } from "@/lib/i18n/rubric-locale";
 import { clamp, round, weightedScore } from "@/lib/scoring";
 import type {
   AnswerEvaluation,
@@ -21,10 +26,10 @@ import type {
 } from "@/lib/types";
 
 /* -------------------------------------------------------------------------- */
-/* Text analysis                                                              */
+/* Locale-specific analysis tables                                            */
 /* -------------------------------------------------------------------------- */
 
-const STOP_WORDS = new Set([
+const EN_STOP_WORDS = new Set([
   "the", "a", "an", "and", "or", "but", "if", "then", "so", "because", "of",
   "to", "in", "on", "at", "for", "with", "is", "are", "was", "were", "be",
   "been", "its", "it", "this", "that", "these", "those", "i", "you", "we",
@@ -37,11 +42,27 @@ const STOP_WORDS = new Set([
   "other", "others", "each", "both", "few", "many", "much", "real", "really",
 ]);
 
+const RU_STOP_WORDS = new Set([
+  "и", "а", "но", "да", "или", "либо", "то", "же", "ли", "бы", "б", "если", "бы",
+  "когда", "чтобы", "потому", "что", "чтобы", "как", "так", "также", "тоже",
+  "в", "во", "не", "ни", "нет", "ну", "вот", "ведь", "впрочем", "причём",
+  "на", "по", "до", "из", "от", "за", "под", "над", "о", "об", "обо", "при",
+  "про", "для", "без", "к", "ко", "у", "около", "это", "этот", "эта", "эти",
+  "тот", "та", "те", "он", "она", "оно", "они", "его", "её", "их", "мне", "меня",
+  "я", "ты", "мы", "вы", "он", "она", "мой", "моя", "твой", "твоя", "наш", "наш",
+  "свой", "свою", "своё", "чем", "чём", "такой", "такая", "такое", "весь", "вся",
+  "все", "всё", "быть", "был", "была", "было", "были", "есть", "будет", "будут",
+  "могу", "может", "можем", "можно", "нужно", "надо", "должен", "должна",
+  "очень", "более", "менее", "самый", "сама", "само", "ещё", "уж", "уже", "вот",
+  "именно", "какой", "какая", "какое", "кто", "что", "где", "куда", "откуда",
+  "сколько", "почему", "зачем", "там", "тут", "здесь", "сейчас", "тогда",
+]);
+
 /**
- * Causal and comparative language. Presence of one of these means the answer
- * is explaining rather than describing.
+ * Causal and comparative language, English. Presence of one of these means the
+ * answer is explaining rather than describing.
  */
-const REASONING_MARKERS = [
+const EN_REASONING_MARKERS = [
   "because", "since", "therefore", "thus", "hence", "so", "so that",
   "which means", "this means", "that means", "as a result", "instead of",
   "rather than", "compared to", "in exchange", "at the cost of", "due to",
@@ -49,25 +70,61 @@ const REASONING_MARKERS = [
   "forgo", "forgone", "next best", "alternative", "trade-off", "tradeoff",
 ];
 
-const normalize = (text: string): string =>
-  text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s'-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+/**
+ * Causal and comparative language, Russian. Matched as substrings on
+ * normalized text, so morphological variants ("отказываюсь", "отказался")
+ * share a marker root.
+ */
+const RU_REASONING_MARKERS = [
+  "потому что", "потому", "поэтому", "так как", "поскольку", "значит",
+  "следовательно", "таким образом", "в результате", "вместо",
+  "а не", "не как", "чем", "по сравнению", "в обмен", "ценой",
+  "отказыва", "отказал", "отказ", "отказываюсь", "жертв", "жертвую",
+  "упущен", "упуска", "лучший", "лучшая", "лучше", "альтернатив",
+  "компромисс", "компромис", "теряет", "теряю", "потеря",
+];
 
-const words = (text: string): string[] => normalize(text).split(" ").filter(Boolean);
-
-/** Significant words of a phrase: stop words and one-letter tokens removed. */
-const significantWords = (phrase: string): string[] =>
-  normalize(phrase)
-    .split(" ")
-    .filter((word) => word.length > 1 && !STOP_WORDS.has(word));
+/* -------------------------------------------------------------------------- */
+/* Text analysis                                                              */
+/* -------------------------------------------------------------------------- */
 
 /**
- * Two words count as the same when they share a 4+ character prefix, so
- * "sacrificed"/"sacrifices", "cost"/"costs" and "value"/"valuable" all match
- * without shipping a stemmer.
+ * Normalization that keeps BOTH scripts intact: lowercase, strip punctuation,
+ * collapse whitespace. `[^\p{L}\p{N}\s'-]` with the `u` flag keeps letters of
+ * any alphabet — the ASCII-only version silently deleted every Cyrillic word,
+ * which would have made the whole evaluator blind to Russian answers.
+ */
+function normalize(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Words for prefix-matching; language-neutral (letters of any alphabet). */
+function words(text: string): string[] {
+  return normalize(text).split(" ").filter(Boolean);
+}
+
+/** Stop-word filter picks the right list by script. */
+function stopWordsFor(text: string): Set<string> {
+  return /[\u0400-\u04FF]/.test(text) ? RU_STOP_WORDS : EN_STOP_WORDS;
+}
+
+/** Significant words of a phrase: stop words and one-letter tokens removed. */
+function significantWords(phrase: string): string[] {
+  const stop = stopWordsFor(phrase);
+  return normalize(phrase)
+    .split(" ")
+    .filter((word) => word.length > 1 && !stop.has(word));
+}
+
+/**
+ * Two words count as the same when they share a 4+ character prefix. Works for
+ * both scripts: "sacrificed"/"sacrifices" and "альтернатив"/"альтернативу"
+ * match without shipping a stemmer. (Cyrillic prefix of 4 chars is somewhat
+ * coarser than English ones, which is fine — we score short rubric phrases.)
  */
 function wordsMatch(a: string, b: string): boolean {
   if (a === b) return true;
@@ -112,11 +169,13 @@ export interface RubricEvaluationInput {
   options: ApplicationOption[];
   reasoning: string;
   rubric: Rubric;
+  /** Language of the rubric/answer; defaults to English. */
+  locale?: "en" | "ru";
 }
 
 export function evaluateWithRubric(input: RubricEvaluationInput): AnswerEvaluation {
   const { optionId, options, reasoning, rubric } = input;
-
+  const locale = input.locale ?? "en";
   const text = normalize(reasoning ?? "");
   const textWords = words(reasoning ?? "");
   const wordCount = textWords.length;
@@ -136,7 +195,8 @@ export function evaluateWithRubric(input: RubricEvaluationInput): AnswerEvaluati
   const signalMatches = rubric.reasoningSignals.map((signal) =>
     phraseMatch(text, textWords, signal),
   );
-  const hasCausalLanguage = REASONING_MARKERS.some(
+  const markers = locale === "ru" ? RU_REASONING_MARKERS : EN_REASONING_MARKERS;
+  const hasCausalLanguage = markers.some(
     (marker) => phraseMatch(text, textWords, marker) >= 1,
   );
   const tooShort = wordCount < MIN_REASONING_WORDS;
@@ -158,7 +218,9 @@ export function evaluateWithRubric(input: RubricEvaluationInput): AnswerEvaluati
     rubric.concepts.some(
       (concept, index) =>
         (conceptMatches[index] ?? 0) >= NAMED_THRESHOLD &&
-        /given up|forgone|forgo|sacrific|next best|alternative/i.test(concept),
+        /given up|forgone|forgo|sacrific|next best|alternative|упущен|отказ|альтернатив|жертв/i.test(
+          concept,
+        ),
     );
 
   const contextApplication = clamp(
@@ -171,17 +233,14 @@ export function evaluateWithRubric(input: RubricEvaluationInput): AnswerEvaluati
   );
 
   const breakdown = { conceptRecognition, reasoning: reasoningScore, contextApplication };
+  const composite = weightedScore(breakdown);
 
   return {
-    score: weightedScore(breakdown),
+    score: composite,
     breakdown,
-    strengths: buildStrengths({
-      relativeCredit,
-      namedConcepts,
-      hasCausalLanguage,
-      wordCount,
-    }),
+    strengths: buildStrengths({ locale, relativeCredit, namedConcepts, hasCausalLanguage, wordCount }),
     weaknesses: buildWeaknesses({
+      locale,
       relativeCredit,
       namedConcepts,
       conceptTotal: rubric.concepts.length,
@@ -191,7 +250,8 @@ export function evaluateWithRubric(input: RubricEvaluationInput): AnswerEvaluati
       mustMention: rubric.mustMention,
     }),
     feedback: buildFeedback({
-      score: weightedScore(breakdown),
+      locale,
+      score: composite,
       relativeCredit,
       namedConcepts,
       hasCausalLanguage,
@@ -199,39 +259,56 @@ export function evaluateWithRubric(input: RubricEvaluationInput): AnswerEvaluati
       mustMention: rubric.mustMention,
     }),
     engine: "rubric",
-    notice: "Scored by the local rubric engine — no AI grader was used for this answer.",
+    notice: localeNotice(locale),
   };
 }
 
 /* -------------------------------------------------------------------------- */
-/* Feedback construction                                                      */
+/* Localized feedback construction                                            */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * The rubric engine is shared by server and client, so it cannot call
+ * `useI18n()`. The dictionary is passed through this indirection instead —
+ * the server route passes the locale explicitly; on the client the hook-less
+ * accessor in `rubric-locale.ts` reads the same persisted locale.
+ */
+function dictionaries(locale: "en" | "ru") {
+  return getRubricDictionary(locale);
+}
+
+function localeNotice(locale: "en" | "ru"): string {
+  return dictionaries(locale).rubricNotice;
+}
+
 function buildStrengths(input: {
+  locale: "en" | "ru";
   relativeCredit: number;
   namedConcepts: string[];
   hasCausalLanguage: boolean;
   wordCount: number;
 }): string[] {
+  const t = dictionaries(input.locale);
   const strengths: string[] = [];
   if (input.relativeCredit >= 0.99) {
-    strengths.push("You identified the alternative the concept actually points to.");
+    strengths.push(t.rubricStrongIdentified);
   } else if (input.relativeCredit >= 0.4) {
-    strengths.push("Your choice is defensible, even though a stronger option existed.");
+    strengths.push(t.rubricDefensible);
   }
   if (input.namedConcepts.length > 0) {
-    strengths.push(`You named the key idea: ${input.namedConcepts[0]}.`);
+    strengths.push(t.rubricNamedKeyIdea(input.namedConcepts[0]));
   }
   if (input.hasCausalLanguage) {
-    strengths.push("You explained cause and effect instead of only stating a conclusion.");
+    strengths.push(t.rubricCausal);
   }
   if (input.wordCount >= 30) {
-    strengths.push("You developed the answer far enough for the reasoning to be checkable.");
+    strengths.push(t.rubricDeveloped);
   }
   return strengths.slice(0, 3);
 }
 
 function buildWeaknesses(input: {
+  locale: "en" | "ru";
   relativeCredit: number;
   namedConcepts: string[];
   conceptTotal: number;
@@ -240,28 +317,30 @@ function buildWeaknesses(input: {
   wordCount: number;
   mustMention: string;
 }): string[] {
+  const t = dictionaries(input.locale);
   const weaknesses: string[] = [];
   if (input.wordCount < 15) {
-    weaknesses.push("The reasoning is too short to show how the concept was applied.");
+    weaknesses.push(t.rubricTooShort);
   }
   if (input.namedConcepts.length === 0) {
     // `mustMention` is authored as a statement for the grading contract, so it
     // is quoted after a colon rather than glued into a sentence.
-    weaknesses.push(`A complete answer has to establish this: ${input.mustMention}.`);
+    weaknesses.push(t.rubricMustEstablish(input.mustMention));
   }
   if (!input.hasCausalLanguage) {
-    weaknesses.push("The trade-off is implied but never explained in words.");
+    weaknesses.push(t.rubricTradeOffImplied);
   }
   if (input.signalCoverage < NAMED_THRESHOLD && input.conceptTotal > 1) {
-    weaknesses.push("The answer describes the situation without evaluating the alternatives.");
+    weaknesses.push(t.rubricDescribesNotEvaluates);
   }
   if (input.relativeCredit > 0 && input.relativeCredit < 0.99) {
-    weaknesses.push("A stronger alternative was available for this scenario.");
+    weaknesses.push(t.rubricStrongerAlternative);
   }
   return weaknesses.slice(0, 3);
 }
 
 function buildFeedback(input: {
+  locale: "en" | "ru";
   score: number;
   relativeCredit: number;
   namedConcepts: string[];
@@ -269,19 +348,20 @@ function buildFeedback(input: {
   wordCount: number;
   mustMention: string;
 }): string {
+  const t = dictionaries(input.locale);
   if (input.score >= 85) {
-    return `Strong application. You applied the concept to this scenario rather than restating it, and your reasoning established what mattered: ${input.mustMention}.`;
+    return t.rubricFeedbackStrong(input.mustMention);
   }
   if (input.score >= 65) {
-    return `Solid reasoning. To push it higher, make this explicit in a sentence of its own: ${input.mustMention}.`;
+    return t.rubricFeedbackSolid(input.mustMention);
   }
   if (input.wordCount < 15) {
-    return "The choice is there, but the reasoning is not. Write two sentences: what was given up, and why that matters in this situation.";
+    return t.rubricFeedbackNoReasoning;
   }
   if (input.relativeCredit < 0.5) {
-    return 'Re-read the scenario and ask "what was given up when this decision was made?" — then apply the concept to that specific alternative.';
+    return t.rubricFeedbackReread;
   }
-  return `You are describing the situation instead of applying the concept to it. A strong answer establishes this: ${input.mustMention}.`;
+  return t.rubricFeedbackDescribing(input.mustMention);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -291,11 +371,13 @@ export function evaluateAnswer(
   options: ApplicationOption[],
   rubric: Rubric,
   answer: AnswerInput,
+  locale: "en" | "ru" = "en",
 ): AnswerEvaluation {
   return evaluateWithRubric({
     optionId: answer.optionId,
     options,
     reasoning: answer.reasoning,
     rubric,
+    locale,
   });
 }

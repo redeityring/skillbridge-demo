@@ -1,3 +1,6 @@
+"use client";
+
+import { useI18n } from "@/lib/i18n";
 import { clamp } from "@/lib/scoring";
 import { cn } from "@/lib/cn";
 
@@ -58,6 +61,11 @@ export function ProgressBar({
   );
 }
 
+function useQuestionLabel() {
+  const { t } = useI18n();
+  return t.questionOf;
+}
+
 /**
  * The compact step header used by every assessment screen:
  * `ECONOMICS · OPPORTUNITY COST` on the left, `3 / 7` on the right.
@@ -75,6 +83,7 @@ export function StepProgress({
   total: number;
   className?: string;
 }) {
+  const questionOf = useQuestionLabel();
   const percent = total > 0 ? (step / total) * 100 : 0;
   return (
     <div className={cn("space-y-3", className)}>
@@ -87,12 +96,12 @@ export function StepProgress({
         </div>
         <p
           className="shrink-0 text-sm font-medium tabular-nums text-muted-foreground"
-          aria-label={`Question ${step} of ${total}`}
+          aria-label={questionOf(step, total)}
         >
           {step} / {total}
         </p>
       </div>
-      <ProgressBar value={percent} label={`Progress: question ${step} of ${total}`} />
+      <ProgressBar value={percent} label={questionOf(step, total)} />
     </div>
   );
 }

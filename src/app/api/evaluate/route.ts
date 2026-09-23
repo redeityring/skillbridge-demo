@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { gradeWithAi } from "@/lib/ai/tasks";
-import { getTopic } from "@/content/economics";
+import { getTopic } from "@/content";
 import { evaluateAnswer } from "@/lib/rubric";
 import type { ApplicationOption, Rubric, TopicId } from "@/lib/types";
 
@@ -13,7 +13,8 @@ import type { ApplicationOption, Rubric, TopicId } from "@/lib/types";
  *  1. It always returns a usable evaluation — AI failure degrades to the local
  *     rubric rather than an error page.
  *  2. The rubric it grades against is authoritative. For content questions it
- *     is read from the server-side content bank, not trusted from the request.
+ *     is read from the server-side content bank in the learner's language, not
+ *     trusted from the request.
  */
 
 const optionSchema = z.object({
@@ -29,7 +30,7 @@ const rubricSchema = z.object({
 });
 
 const generatedTaskSchema = z.object({
-  skill: z.string().min(1).max(80),
+  skill: z.string().min(1).max(120),
   scenario: z.string().min(20).max(1200),
   decisionPrompt: z.string().min(5).max(300),
   options: z.array(optionSchema).min(2).max(5),
@@ -46,6 +47,8 @@ const requestSchema = z.object({
     optionId: z.string().max(8).nullable(),
     reasoning: z.string().max(4000).default(""),
   }),
+  /** Learner's language; defaults to English. */
+  locale: z.enum(["en", "ru"]).default("en"),
 });
 
 export async function POST(request: Request) {
@@ -59,6 +62,8 @@ export async function POST(request: Request) {
     );
   }
 
+  const locale = payload.locale;
+
   const resolved = resolveTask(payload);
   if (!resolved) {
     return NextResponse.json({ error: "Unknown question." }, { status: 404 });
@@ -67,7 +72,7 @@ export async function POST(request: Request) {
   const { skill, scenario, decisionPrompt, options, rubric, title } = resolved;
 
   const outcome = await gradeWithAi({
-    subject: "Economics",
+    subject: locale === "ru" ? "Экономика" : "Economics",
     topicTitle: title,
     topicId: payload.topicId as TopicId,
     skill,
@@ -76,6 +81,7 @@ export async function POST(request: Request) {
     options,
     rubric,
     answer: payload.answer,
+    locale,
   });
 
   if (outcome.ok) {
@@ -84,11 +90,13 @@ export async function POST(request: Request) {
 
   // Graceful degradation: the learner's real answer, really scored, plainly
   // labelled. The provider error is never surfaced as a failure page.
-  const fallback = evaluateAnswer(options, rubric, payload.answer);
+  const fallback = evaluateAnswer(options, rubric, payload.answer, locale);
   return NextResponse.json({
     evaluation: {
       ...fallback,
-      notice: `${outcome.error} This answer was scored by the local rubric engine.`,
+      notice: `${outcome.error} ${locale === "ru"
+        ? "Этот ответ оценён локальным рубричным движком."
+        : "This answer was scored by the local rubric engine."}`,
     },
     engine: "rubric",
   });
@@ -122,7 +130,7 @@ function resolveTask(payload: z.infer<typeof requestSchema>):
   }
 
   if (!payload.questionId) return null;
-  const topic = getTopic(payload.topicId as TopicId);
+  const topic = getTopic(payload.topicId as TopicId, payload.locale);
   const question = topic.applicationQuestions.find((item) => item.id === payload.questionId);
   if (!question) return null;
 

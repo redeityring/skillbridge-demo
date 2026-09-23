@@ -5,6 +5,7 @@ import { useCallback } from "react";
 
 import { useSession } from "@/components/session-provider";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n";
 
 /**
  * Resets the current run and returns home, keeping completed history.
@@ -12,6 +13,7 @@ import { Button } from "@/components/ui/button";
  */
 export function ResetRunButton() {
   const { state, reset, hydrated } = useSession();
+  const { t } = useI18n();
   const router = useRouter();
 
   const hasRun =
@@ -27,13 +29,8 @@ export function ResetRunButton() {
   if (!hydrated || !hasRun) return null;
 
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={handleReset}
-      title="Clear this run and start again. Completed results stay in Progress."
-    >
-      Reset run
+    <Button variant="ghost" size="sm" onClick={handleReset} title={t.resetTitle}>
+      {t.resetRun}
     </Button>
   );
 }

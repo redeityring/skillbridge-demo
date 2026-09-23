@@ -3,15 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-
-const LINKS = [
-  { href: "/", label: "Learn" },
-  { href: "/progress", label: "Progress" },
-] as const;
 
 export function SiteNav() {
   const pathname = usePathname();
+  const { t } = useI18n();
+
+  const LINKS = [
+    { href: "/", label: t.navLearn },
+    { href: "/progress", label: t.navProgress },
+  ] as const;
 
   return (
     <nav aria-label="Primary" className="flex items-center gap-1">
@@ -40,7 +42,7 @@ export function SiteNav() {
   );
 }
 
-/** The wordmark. The mark is two bars and a bridge span — the product idea. */
+/** The wordmark. The mark is two pillars and a bridge span — the product idea. */
 export function Wordmark() {
   return (
     <Link href="/" className="inline-flex items-center gap-2.5">
@@ -50,11 +52,13 @@ export function Wordmark() {
       >
         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none">
           <path
-            d="M3 17h18M6 17v-4a6 6 0 0 1 12 0v4"
+            d="M3.5 18h4.5v-5.5a4 4 0 0 1 8 0V18h4.5"
             stroke="white"
             strokeWidth="1.9"
             strokeLinecap="round"
+            strokeLinejoin="round"
           />
+          <path d="M5.75 12.5 18.25 8" stroke="white" strokeWidth="1.9" strokeLinecap="round" />
         </svg>
       </span>
       <span className="text-[0.9375rem] font-semibold tracking-[-0.02em] text-foreground">

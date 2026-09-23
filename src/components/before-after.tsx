@@ -1,6 +1,9 @@
+"use client";
+
 import { ComparisonChart, DeltaChip } from "@/components/ui/score";
 import { Card, SectionLabel } from "@/components/ui/card";
 import { CountUp } from "@/components/ui/count-up";
+import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 
 /**
@@ -21,6 +24,7 @@ export function BeforeAfterPanel({
   className?: string;
   footer?: React.ReactNode;
 }) {
+  const { t } = useI18n();
   const delta = Math.round(after) - Math.round(before);
 
   return (
@@ -28,30 +32,28 @@ export function BeforeAfterPanel({
       <div className="space-y-6 px-6 py-6 sm:px-8 sm:py-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-1.5">
-            <SectionLabel>Application ability</SectionLabel>
-            <p className="text-sm text-muted-foreground">
-              Measured on a new scenario after bridging
-            </p>
+            <SectionLabel>{t.applicationAbility}</SectionLabel>
+            <p className="text-sm text-muted-foreground">{t.measuredAfterBridging}</p>
           </div>
           <DeltaChip delta={delta} size="lg" />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <StatBlock label="Before" value={before} tone="before" />
-          <StatBlock label="After" value={after} tone="after" />
+          <StatBlock label={t.before} value={before} tone="before" />
+          <StatBlock label={t.after} value={after} tone="after" />
         </div>
 
         <div className="border-t border-white/60 pt-5">
           <ComparisonChart
-            ariaLabel="Application ability before and after bridging"
-            reference={{ value: before, label: "before" }}
+            ariaLabel={t.comparisonLegend(Math.round(before), t.before)}
+            reference={{ value: before, label: t.before }}
             items={[
-              { label: "Before", value: before, tone: "danger" },
-              { label: "After", value: after, tone: "success" },
+              { label: t.before, value: before, tone: "danger" },
+              { label: t.after, value: after, tone: "success" },
               ...(understanding !== undefined
                 ? [
                     {
-                      label: "Understanding",
+                      label: t.understanding,
                       value: understanding,
                       tone: "primary" as const,
                     },

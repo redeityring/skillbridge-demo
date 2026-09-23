@@ -18,6 +18,8 @@
 
 import { z } from "zod";
 
+import type { Locale } from "@/lib/i18n/config";
+
 /** One candidate model, plus what the endpoint can be asked to do. */
 export interface AiModel {
   id: string;
@@ -84,16 +86,47 @@ function recordAiSuccess(model: string): void {
   lastServedModel = model;
 }
 
-/** Maps a provider status code onto a message safe to show a learner. */
-function friendlyError(status: number, detail: string): string {
+/**
+ * Maps a provider status code onto a message safe to show a learner — in the
+ * learner's language. These strings reach the UI via the fallback notice, so
+ * they must never mix languages inside one evaluation.
+ */
+function friendlyError(status: number, detail: string, locale: Locale): string {
   // Keep the provider's own words in the server log, never in the UI.
   console.warn(`[skillbridge] AI provider responded ${status}: ${detail.slice(0, 500)}`);
+  if (locale === "ru") {
+    if (status === 401 || status === 403) return "AI-провайдер отклонил настроенный API-ключ.";
+    if (status === 402) return "У аккаунта AI-провайдера закончились кредиты.";
+    if (status === 429) return "Все бесплатные AI-модели сейчас перегружены (лимит запросов).";
+    if (status === 404) return "Ни одна из настроенных AI-моделей не найдена у провайдера.";
+    if (status >= 500) return "AI-провайдер временно недоступен.";
+    return "AI-провайдер вернул неожиданный ответ.";
+  }
   if (status === 401 || status === 403) return "The AI provider rejected the configured API key.";
   if (status === 402) return "The AI provider account has no available credits.";
   if (status === 429) return "Every free AI model is rate-limited right now.";
   if (status === 404) return "None of the configured AI models were found on this provider.";
   if (status >= 500) return "The AI provider is temporarily unavailable.";
   return "The AI provider returned an unexpected response.";
+}
+
+/** Fallback-notice strings, localized once here so callers stay language-clean. */
+function attemptMessage(key: "timeout" | "network" | "empty" | "unparseable" | "schema", locale: Locale): string {
+  const ru: Record<typeof key, string> = {
+    timeout: "Истекло время ожидания AI-провайдера.",
+    network: "Не удалось связаться с AI-провайдером.",
+    empty: "AI-провайдер вернул пустой ответ.",
+    unparseable: "Ответ AI не удалось разобрать.",
+    schema: "Ответ AI не совпал с ожидаемой структурой.",
+  };
+  const en: Record<typeof key, string> = {
+    timeout: "The AI provider timed out.",
+    network: "Could not reach the AI provider.",
+    empty: "The AI provider returned an empty response.",
+    unparseable: "The AI response could not be parsed.",
+    schema: "The AI response did not match the expected structure.",
+  };
+  return (locale === "ru" ? ru : en)[key];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -110,7 +143,7 @@ type ProviderPreset = {
 };
 
 /**
- * OpenRouter's free tier.
+ * OpenRouter's free tier — the only provider SkillBridge uses.
  *
  * Free variants (`:free`) are capped per minute and per day, and — in
  * OpenRouter's own words — "different models have different rate limits, so you
@@ -120,43 +153,50 @@ type ProviderPreset = {
  *
  * Ordered by fitness for the job at hand (grading short written answers into a
  * fixed JSON shape), weighing measured reasoning quality, JSON reliability and
- * context length. Verified against GET /api/v1/models rather than assumed.
+ * context length. Every id and `jsonMode` flag below is verified against
+ * GET /api/v1/models rather than assumed.
  *
- * Note `jsonMode: false` throughout: none of the current free variants declare
- * support for `response_format`, so asking for it would 400 on every first
- * attempt. The prompts pin the exact shape and `extractJson` handles the rest.
+ * `jsonMode` mirrors whether the model declares `response_format` support, so
+ * single-model attempts can ask for structured output where it exists and
+ * avoid a guaranteed 400 where it does not.
  */
 const OPENROUTER_FREE_MODELS: AiModel[] = [
   // Strongest measured reasoning of the free set; 262k context.
   { id: "qwen/qwen3.8-27b:free", jsonMode: false },
-  // 120B MoE, 262k context, the only free variant declaring structured output.
-  { id: "nvidia/nemotron-3-super-120b-a12b:free", jsonMode: false },
-  // Dense 31B from Google; dependable instruction following.
-  { id: "google/gemma-4-31b-it:free", jsonMode: false },
+  // 120B MoE with native structured output; 262k context.
+  { id: "nvidia/nemotron-3-super-120b-a12b:free", jsonMode: true },
+  // Dense 31B from Google; dependable instruction following + structured output.
+  { id: "google/gemma-4-31b-it:free", jsonMode: true },
   // Very strong reasoning, smaller 32k window — ample for these prompts.
   { id: "z-ai/glm-5.2:free", jsonMode: false },
-  // Fast MoE; 1M context headroom.
-  { id: "google/gemma-4-26b-a4b-it:free", jsonMode: false },
-  { id: "nvidia/nemotron-3-ultra-550b-a55b:free", jsonMode: false },
+  // (Removed: thinkingmachines/inkling:free — gated to agentic harnesses, 403s
+  // unconditionally for plain API calls, so it only added dead latency.)
+  // Fast MoE with structured output.
+  { id: "google/gemma-4-26b-a4b-it:free", jsonMode: true },
+  // Pro-tier NEX with structured output.
+  { id: "nex-agi/nex-n2.5-pro:free", jsonMode: true },
+  // 512k context preview model with structured output.
+  { id: "dots-studio/dots-3-note-preview:free", jsonMode: true },
+  // 1M-context large model; no structured output declared.
   { id: "thinkingmachines/inkling:free", jsonMode: false },
-  // Last resort: small and fast, still enough to return the required shape.
-  { id: "nvidia/nemotron-3.5-lightning:free", jsonMode: false },
+  // 550B MoE, 1M context — big spare tyre, no structured output declared.
+  { id: "nvidia/nemotron-3-ultra-550b-a55b:free", jsonMode: false },
 ];
 
-/** Checked in order; the first provider with a key set wins. */
+/**
+ * OpenRouter accepts at most 3 model ids per `models: [...]` routing array
+ * (verified: a larger array is rejected with 400). The first group rides the
+ * native failover request; the rest are walked one model at a time.
+ */
+const OPENROUTER_MAX_ROUTED = 3;
+
+/**
+ * The only provider preset. SkillBridge is OpenRouter-only: one key, free
+ * models, an internal failover chain. (Cerebras was dropped after its credits
+ * ran out mid-demo — the lesson is that a single paid endpoint is a single
+ * point of failure, and free tiers multiply quota instead of spending it.)
+ */
 const PROVIDER_PRESETS: ProviderPreset[] = [
-  {
-    keyEnv: "OPENAI_API_KEY",
-    baseUrl: "https://api.openai.com/v1",
-    models: [{ id: "gpt-4o-mini", jsonMode: true }],
-    label: "OpenAI",
-  },
-  {
-    keyEnv: "CEREBRAS_API_KEY",
-    baseUrl: "https://api.cerebras.ai/v1",
-    models: [{ id: "gpt-oss-120b", jsonMode: true }],
-    label: "Cerebras",
-  },
   {
     keyEnv: "OPENROUTER_API_KEY",
     baseUrl: "https://openrouter.ai/api/v1",
@@ -169,12 +209,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
       "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "https://github.com/skillbridge",
       "X-Title": process.env.OPENROUTER_SITE_NAME ?? "SkillBridge",
     },
-  },
-  {
-    keyEnv: "GROQ_API_KEY",
-    baseUrl: "https://api.groq.com/openai/v1",
-    models: [{ id: "llama-3.3-70b-versatile", jsonMode: true }],
-    label: "Groq",
   },
 ];
 
@@ -201,12 +235,14 @@ function modelsFromEnv(fallback: AiModel[]): AiModel[] {
  *  2. the first known provider whose key is present
  */
 export function getAiConfig(): AiConfig | null {
+  // Explicit override (AI_API_KEY + AI_BASE_URL) still wins for local
+  // experimentation, but the shipped default path is OpenRouter free models.
   if (process.env.AI_API_KEY) {
     return {
       apiKey: process.env.AI_API_KEY,
       baseUrl: (process.env.AI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, ""),
       models: modelsFromEnv([{ id: "gpt-4o-mini", jsonMode: true }]),
-      label: "AI_API_KEY provider",
+      label: "Custom provider",
       modelArrayRouting: false,
       headers: {},
     };
@@ -361,6 +397,8 @@ interface ChatJsonOptions<S extends z.ZodType> {
   maxTokens?: number;
   timeoutMs?: number;
   temperature?: number;
+  /** Learner's language — failure notices are worded in it. */
+  locale?: Locale;
 }
 
 /** How one HTTP attempt ended. Drives whether the chain keeps going. */
@@ -385,7 +423,11 @@ async function attempt(
 ): Promise<AttemptOutcome> {
   const body: Record<string, unknown> = {
     ...(asArray
-      ? { models: config.models.map((model) => model.id) }
+      ? {
+          models: config.models
+            .slice(0, OPENROUTER_MAX_ROUTED)
+            .map((model) => model.id),
+        }
       : { model: candidate.id }),
     temperature: options.temperature ?? 0.2,
     max_tokens: options.maxTokens ?? 900,
@@ -425,7 +467,7 @@ async function attempt(
         return { status: "next", message: "response_format rejected" };
       }
 
-      const message = friendlyError(response.status, detail);
+      const message = friendlyError(response.status, detail, options.locale ?? "en");
       // 4xx (other than 429) mean this request will never succeed as written;
       // 429 and 5xx are worth trying against a different model.
       if (response.status === 429 || response.status >= 500) {
@@ -442,7 +484,7 @@ async function attempt(
     const content = payload.choices?.[0]?.message?.content ?? "";
     if (!content) {
       console.warn(`[skillbridge] model ${candidate.id} returned an empty response; trying next.`);
-      return { status: "next", message: "The AI provider returned an empty response." };
+      return { status: "next", message: attemptMessage("empty", options.locale ?? "en") };
     }
 
     // Report which model actually answered — with array routing the provider
@@ -450,7 +492,7 @@ async function attempt(
     return { status: "ok", content, model: payload.model ?? candidate.id };
   } catch (error) {
     const aborted = error instanceof Error && error.name === "AbortError";
-    const message = aborted ? "The AI provider timed out." : "Could not reach the AI provider.";
+    const message = attemptMessage(aborted ? "timeout" : "network", options.locale ?? "en");
     console.warn(`[skillbridge] model ${candidate.id} failed (${message}); trying next.`);
     return { status: "next", message };
   } finally {
@@ -483,10 +525,16 @@ export async function chatJson<S extends z.ZodType>(
 
   let lastMessage = "AI provider unavailable.";
 
+  // Whole-chain deadline. The client aborts grading requests at 30 s, so the
+  // server must give up before that — otherwise the learner sees a network
+  // error instead of the honest "scored by the local rubric" notice. Budget:
+  // the first attempt's timeout plus a fixed reserve for the rest of the chain.
+  const chainDeadline = Date.now() + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS) + 10_000;
+
   const finish = (content: string, model: string): ChatJsonResult<z.infer<S>> | null => {
     const parsed = extractJson(content);
     if (parsed === undefined) {
-      lastMessage = "The AI response could not be parsed.";
+      lastMessage = attemptMessage("unparseable", options.locale ?? "en");
       return null;
     }
     const validated = options.schema.safeParse(parsed);
@@ -495,7 +543,7 @@ export async function chatJson<S extends z.ZodType>(
         "[skillbridge] AI response failed schema validation:",
         validated.error.issues[0]?.message,
       );
-      lastMessage = "The AI response did not match the expected structure.";
+      lastMessage = attemptMessage("schema", options.locale ?? "en");
       return null;
     }
     recordAiSuccess(model);
@@ -522,9 +570,22 @@ export async function chatJson<S extends z.ZodType>(
     }
   }
 
-  // Layer 2 — walk the chain one model at a time.
+  // Layer 2 — walk the chain one model at a time, inside the chain deadline.
+  // Each attempt gets whatever time is left, so the total stays bounded even
+  // when every model is slow.
   for (const candidate of candidates) {
-    const outcome = await attempt(config, candidate, options, false);
+    const remaining = chainDeadline - Date.now();
+    if (remaining < 3_000) {
+      console.warn("[skillbridge] chain deadline reached; falling back to the local engine.");
+      break;
+    }
+      // No single attempt may eat the whole budget: cap it so at least two
+    // models get their chance even when the first one hangs.
+    const attemptOptions = {
+      ...options,
+      timeoutMs: Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, remaining, 12_000),
+    };
+    const outcome = await attempt(config, candidate, attemptOptions, false);
 
     if (outcome.status === "stop") {
       recordAiFailure(outcome.message);

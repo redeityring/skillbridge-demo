@@ -1,6 +1,9 @@
+"use client";
+
 import { Badge, StatusDot, toneForScore } from "@/components/ui/badge";
 import { Card, SectionLabel } from "@/components/ui/card";
 import { ProgressBar } from "@/components/ui/progress-bar";
+import { useI18n } from "@/lib/i18n";
 import { SCORE_WEIGHTS } from "@/lib/scoring";
 import type { AnswerEvaluation } from "@/lib/types";
 
@@ -12,13 +15,14 @@ import type { AnswerEvaluation } from "@/lib/types";
  */
 export function FeedbackCard({
   evaluation,
-  title = "Feedback",
+  title,
   children,
 }: {
   evaluation: AnswerEvaluation;
   title?: string;
   children?: React.ReactNode;
 }) {
+  const { t } = useI18n();
   const tone = toneForScore(evaluation.score);
 
   return (
@@ -29,7 +33,7 @@ export function FeedbackCard({
             <p className="text-sm font-semibold tracking-[-0.01em] text-foreground">{title}</p>
             <Badge tone={evaluation.engine === "ai" ? "primary" : "neutral"}>
               <StatusDot tone={evaluation.engine === "ai" ? "primary" : "neutral"} />
-              {evaluation.engine === "ai" ? "AI graded" : "Local rubric"}
+              {evaluation.engine === "ai" ? t.aiGraded : t.localRubric}
             </Badge>
           </div>
           <p className="text-sm font-semibold tabular-nums text-foreground">
@@ -42,7 +46,7 @@ export function FeedbackCard({
 
         {evaluation.strengths.length > 0 ? (
           <div className="space-y-1.5">
-            <SectionLabel>What worked</SectionLabel>
+            <SectionLabel>{t.whatWorked}</SectionLabel>
             <ul className="space-y-1">
               {evaluation.strengths.map((strength) => (
                 <li key={strength} className="flex gap-2 text-sm leading-relaxed text-muted-foreground">
@@ -56,7 +60,7 @@ export function FeedbackCard({
 
         {evaluation.weaknesses.length > 0 ? (
           <div className="space-y-1.5">
-            <SectionLabel>What to fix</SectionLabel>
+            <SectionLabel>{t.whatToFix}</SectionLabel>
             <ul className="space-y-1">
               {evaluation.weaknesses.map((weakness) => (
                 <li key={weakness} className="flex gap-2 text-sm leading-relaxed text-muted-foreground">
@@ -69,21 +73,19 @@ export function FeedbackCard({
         ) : null}
 
         <div className="space-y-2.5 rounded-md border border-border bg-surface-muted/70 px-4 py-3.5 shadow-[inset_0_1px_2px_rgba(13,16,23,0.04)]">
-          <p className="text-xs font-medium text-muted-foreground">
-            How this score was built
-          </p>
+          <p className="text-xs font-medium text-muted-foreground">{t.howScoreBuilt}</p>
           <ScoreLine
-            label="Concept recognition"
+            label={t.conceptRecognition}
             weight={SCORE_WEIGHTS.conceptRecognition}
             value={evaluation.breakdown.conceptRecognition}
           />
           <ScoreLine
-            label="Reasoning"
+            label={t.reasoning}
             weight={SCORE_WEIGHTS.reasoning}
             value={evaluation.breakdown.reasoning}
           />
           <ScoreLine
-            label="Context application"
+            label={t.contextApplication}
             weight={SCORE_WEIGHTS.contextApplication}
             value={evaluation.breakdown.contextApplication}
           />

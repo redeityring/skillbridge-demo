@@ -11,10 +11,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, SectionLabel } from "@/components/ui/card";
 import { EmptyState, LoadingState } from "@/components/ui/loading-state";
 import { ProgressBar } from "@/components/ui/progress-bar";
-import { findTopic } from "@/content/economics";
+import { findTopic } from "@/content";
 import { analyseSkillLosses } from "@/lib/bridge";
+import { useI18n } from "@/lib/i18n";
 import {
-  GAP_COPY,
+  GAP_THRESHOLDS,
   analyzeGap,
   formatScore,
   pickTheoryQuestions,
@@ -22,6 +23,7 @@ import {
   scoreTheory,
   splitApplicationQuestions,
 } from "@/lib/scoring";
+import { useGapLabels } from "@/lib/gap-copy-keys";
 import type { TopicId, TopicProgress } from "@/lib/types";
 
 /** A skill counts as improved once it clears this on a fresh scenario. */
@@ -37,8 +39,10 @@ const IMPROVED_THRESHOLD = 70;
  */
 export default function ProgressPage() {
   const { state, patch, hydrated } = useSession();
+  const { t, locale } = useI18n();
+  const gapLabels = useGapLabels();
   const router = useRouter();
-  const topic = findTopic(state.topicId);
+  const topic = findTopic(state.topicId, locale);
 
   const theory = useMemo(
     () => (topic ? pickTheoryQuestions(topic.theoryQuestions) : []),
@@ -82,7 +86,7 @@ export default function ProgressPage() {
     );
   }, [split, state.reassessmentEvaluations]);
 
-  /** Persist the completed run once, so Home and history can use it. */
+  /* Persist the completed run once, so Home and history can use it. */
   useEffect(() => {
     if (!hydrated || !topic || afterScore === null) return;
     const already = state.history.some((entry) => entry.runId === state.runId);
@@ -149,24 +153,24 @@ export default function ProgressPage() {
       Object.keys(state.applicationEvaluations).length > 0);
 
   if (!hydrated) {
-    return <LoadingState title="Loading your progress…" messages={["Reading your results…"]} />;
+    return <LoadingState title={t.progressLoadingTitle} messages={[t.progressLoadingMsg]} />;
   }
 
   if (!topic || afterScore === null) {
     return (
       <div className="space-y-8">
         <div className="space-y-3">
-          <SectionLabel>Progress</SectionLabel>
+          <SectionLabel>{t.progressEyebrow}</SectionLabel>
           <h1 className="text-3xl font-semibold tracking-[-0.03em] text-foreground">
-            Your progress
+            {t.progressTitle}
           </h1>
         </div>
         <EmptyState
-          title={emptyStateTitle(runInProgress, history.length)}
-          description="The before-and-after comparison appears after a full loop: diagnostic, gap analysis, bridge practice and reassessment. It needs the reassessment, so both scores describe the same concept."
+          title={emptyStateTitle(t, runInProgress, history.length)}
+          description={t.emptyDescription}
           action={
             <Button onClick={() => router.push(runInProgress ? "/reassess" : "/diagnostic")}>
-              {runInProgress ? "Finish the run" : "Start Diagnostic"}
+              {runInProgress ? t.finishTheRun : t.homeStart}
             </Button>
           }
         />
@@ -180,11 +184,10 @@ export default function ProgressPage() {
   return (
     <div className="space-y-8">
       <div className="space-y-3">
-        <SectionLabel>Your progress</SectionLabel>
+        <SectionLabel>{t.progressTitle}</SectionLabel>
         <h1 className="text-3xl font-semibold tracking-[-0.03em] text-foreground">{topic.title}</h1>
         <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-          The diagnostic and the reassessment used different scenarios. The change below is the
-          measured difference, not a repeat of the same questions.
+          {t.measuredOnNew}
         </p>
       </div>
 
@@ -195,10 +198,10 @@ export default function ProgressPage() {
         footer={
           <>
             <Button size="lg" onClick={() => router.push("/")}>
-              Continue learning
+              {t.continueLearning}
             </Button>
             <Button variant="secondary" onClick={() => router.push("/diagnostic")}>
-              Run another diagnostic
+              {t.runAnother}
             </Button>
           </>
         }
@@ -212,11 +215,11 @@ export default function ProgressPage() {
       <div className="grid gap-4 [&>*]:min-w-0 lg:grid-cols-2">
         <Card className="animate-fade-up">
           <CardHeader>
-            <CardTitle>Understanding vs. application</CardTitle>
+            <CardTitle>{t.understandingVsApplication}</CardTitle>
             <p className="text-sm leading-relaxed text-muted-foreground">
               {delta > 0
-                ? `Application moved ${delta > 0 ? "+" : ""}${Math.round(delta)} points while understanding stayed at ${formatScore(theoryScore)}.`
-                : "Your scores were measured on the same concept."}
+                ? t.deltaPositive(Math.round(delta), formatScore(theoryScore))
+                : t.deltaNeutral}
             </p>
           </CardHeader>
           <div className="px-6 pb-6">
@@ -226,22 +229,19 @@ export default function ProgressPage() {
 
         <Card className="animate-fade-up">
           <CardHeader>
-            <CardTitle>Skills</CardTitle>
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              Listed only when a skill you lost points on now holds up on a new scenario.
-            </p>
+            <CardTitle>{t.skills}</CardTitle>
+            <p className="text-sm leading-relaxed text-muted-foreground">{t.skillsNote}</p>
           </CardHeader>
           <div className="space-y-5 px-6 pb-6">
-            <SkillBadgeList skills={improvedSkills} />
+            <SkillBadgeList skills={improvedSkills} title={t.skillsImproved} />
             {improvedSkills.length === 0 ? (
               <p className="text-sm leading-relaxed text-muted-foreground">
-                No skill crossed the {IMPROVED_THRESHOLD}-point threshold yet. Bridge practice
-                targets the gaps that cost the most points — running it again will move them.
+                {t.noSkillCrossed(IMPROVED_THRESHOLD)}
               </p>
             ) : null}
 
             <div className="space-y-3 border-t border-border pt-5">
-              <SectionLabel>Bridge practice</SectionLabel>
+              <SectionLabel>{t.bridgePracticeLabel}</SectionLabel>
               <ul className="space-y-2.5">
                 {state.bridgeAttempts.map((attempt) => (
                   <li key={attempt.exercise.id} className="space-y-1.5">
@@ -262,17 +262,19 @@ export default function ProgressPage() {
                   </li>
                 ))}
                 {state.bridgeAttempts.length === 0 ? (
-                  <li className="text-sm text-subtle-foreground">
-                    Bridge practice was skipped in this run.
-                  </li>
+                  <li className="text-sm text-subtle-foreground">{t.bridgeSkipped}</li>
                 ) : null}
               </ul>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 border-t border-border pt-5">
-              <SectionLabel>Gap at diagnosis</SectionLabel>
-              <Badge tone={gap.level === "low" ? "success" : gap.level === "medium" ? "warning" : "danger"}>
-                {GAP_COPY[gap.level].label} · {gap.gap} pts
+              <SectionLabel>{t.gapAtDiagnosis}</SectionLabel>
+              <Badge
+                tone={
+                  gap.level === "low" ? "success" : gap.level === "medium" ? "warning" : "danger"
+                }
+              >
+                {gapLabels[gap.level]} · {gap.gap} {t.pts}
               </Badge>
             </div>
           </div>
@@ -284,26 +286,28 @@ export default function ProgressPage() {
   );
 }
 
-function emptyStateTitle(runInProgress: boolean, historyCount: number): string {
-  if (runInProgress) return "This run is not finished yet";
-  if (historyCount > 0) return "No run in progress";
-  return "No completed run yet";
+function emptyStateTitle(
+  t: ReturnType<typeof useI18n>["t"],
+  runInProgress: boolean,
+  historyCount: number,
+): string {
+  if (runInProgress) return t.emptyRunNotFinished;
+  if (historyCount > 0) return t.emptyNoRun;
+  return t.emptyNothingYet;
 }
 
 function HistoryCard({ history }: { history: TopicProgress[] }) {
-  const entries = history;
+  const { t, locale } = useI18n();
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>All assessed topics</CardTitle>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Real results from this browser. Nothing is estimated.
-        </p>
+        <CardTitle>{t.allTopics}</CardTitle>
+        <p className="text-sm leading-relaxed text-muted-foreground">{t.realResults}</p>
       </CardHeader>
       <ul className="divide-y divide-border border-t border-border">
-        {entries.map((entry) => {
-          const topic = findTopic(entry.topicId as TopicId);
+        {history.map((entry) => {
+          const topic = findTopic(entry.topicId as TopicId, locale);
           return (
             <li
               key={entry.runId}
@@ -314,7 +318,7 @@ function HistoryCard({ history }: { history: TopicProgress[] }) {
                   {topic?.title ?? entry.topicId}
                 </p>
                 <p className="text-xs text-subtle-foreground">
-                  {new Date(entry.completedAt).toLocaleDateString(undefined, {
+                  {new Date(entry.completedAt).toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US", {
                     day: "numeric",
                     month: "short",
                     year: "numeric",
@@ -323,13 +327,13 @@ function HistoryCard({ history }: { history: TopicProgress[] }) {
               </div>
               <div className="flex items-center gap-6">
                 <div className="text-right">
-                  <p className="text-xs text-subtle-foreground">Understanding</p>
+                  <p className="text-xs text-subtle-foreground">{t.understanding}</p>
                   <p className="text-sm font-semibold tabular-nums text-foreground">
                     {formatScore(entry.theoryScore)}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-subtle-foreground">Application</p>
+                  <p className="text-xs text-subtle-foreground">{t.application}</p>
                   <p className="text-sm font-semibold tabular-nums text-foreground">
                     {entry.afterScore === null
                       ? formatScore(entry.applicationScore)

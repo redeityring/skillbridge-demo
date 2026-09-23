@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { Card } from "@/components/ui/card";
+import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 
 /**
@@ -12,27 +13,27 @@ import { cn } from "@/lib/cn";
  * rather than a frozen screen.
  */
 export function LoadingState({
-  title = "Analyzing your application…",
-  messages = [
-    "Reading your reasoning…",
-    "Comparing it against the concept…",
-    "Identifying what to practise next…",
-  ],
+  title,
+  messages,
   className,
 }: {
   title?: string;
   messages?: string[];
   className?: string;
 }) {
+  const { t } = useI18n();
+  const resolvedTitle = title ?? t.loadingAnalyzing;
+  const resolvedMessages =
+    messages ?? [t.loadingReading, t.loadingComparing, t.loadingIdentifying];
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
-    if (messages.length < 2) return;
+    if (resolvedMessages.length < 2) return;
     const timer = setInterval(() => {
-      setIndex((current) => (current + 1) % messages.length);
+      setIndex((current) => (current + 1) % resolvedMessages.length);
     }, 2200);
     return () => clearInterval(timer);
-  }, [messages.length]);
+  }, [resolvedMessages.length]);
 
   return (
     <Card className={cn("overflow-hidden", className)}>
@@ -42,11 +43,11 @@ export function LoadingState({
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-primary" />
           </span>
-          <p className="text-sm font-medium text-foreground">{title}</p>
+          <p className="text-sm font-medium text-foreground">{resolvedTitle}</p>
         </div>
 
         <p className="text-sm text-muted-foreground" aria-live="polite">
-          {messages[index]}
+          {resolvedMessages[index % resolvedMessages.length] ?? ""}
         </p>
 
         <div className="space-y-2" aria-hidden="true">
@@ -113,14 +114,21 @@ export function ErrorNotice({
     >
       <span>{message}</span>
       {onRetry ? (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="rounded-sm font-medium underline decoration-warning underline-offset-2 hover:no-underline"
-        >
-          Try again
-        </button>
+        <LocalizedRetry onRetry={onRetry} />
       ) : null}
     </div>
+  );
+}
+
+function LocalizedRetry({ onRetry }: { onRetry: () => void }) {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      onClick={onRetry}
+      className="rounded-sm font-medium underline decoration-warning underline-offset-2 hover:no-underline"
+    >
+      {t.tryAgain}
+    </button>
   );
 }

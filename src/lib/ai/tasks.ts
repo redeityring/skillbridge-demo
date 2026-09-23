@@ -7,14 +7,15 @@
  */
 
 import { chatJson } from "./client";
+import { type Locale } from "@/lib/i18n/config";
 import {
   evaluationResponseSchema,
   generatedExerciseBatchSchema,
   type GeneratedExercise,
 } from "./schemas";
 import {
-  GRADER_SYSTEM,
-  GENERATOR_SYSTEM,
+  generatorSystem,
+  graderSystem,
   buildGenerationPrompt,
   buildGradingPrompt,
 } from "./prompts";
@@ -44,6 +45,8 @@ export interface GradeRequest {
   options: ApplicationOption[];
   rubric: Rubric;
   answer: AnswerInput;
+  /** Language the learner is working in; drives AI output language. */
+  locale?: Locale;
 }
 
 export type GradeOutcome =
@@ -51,8 +54,9 @@ export type GradeOutcome =
   | { ok: false; error: string };
 
 export async function gradeWithAi(request: GradeRequest): Promise<GradeOutcome> {
+  const locale: Locale = request.locale ?? "en";
   const result = await chatJson({
-    system: GRADER_SYSTEM,
+    system: graderSystem(locale),
     user: buildGradingPrompt({
       subject: request.subject,
       topic: request.topicTitle,
@@ -66,6 +70,7 @@ export async function gradeWithAi(request: GradeRequest): Promise<GradeOutcome> 
     }),
     schema: evaluationResponseSchema,
     maxTokens: 700,
+    locale,
   });
 
   if (!result.ok) return { ok: false, error: result.error };
@@ -103,6 +108,8 @@ export interface GenerateRequest {
   weaknesses: string[];
   avoid: string[];
   count: number;
+  /** Language the learner is working in; drives AI output language. */
+  locale?: Locale;
 }
 
 export type GenerateOutcome =
@@ -112,8 +119,9 @@ export type GenerateOutcome =
 export async function generateBridgeWithAi(
   request: GenerateRequest,
 ): Promise<GenerateOutcome> {
+  const locale: Locale = request.locale ?? "en";
   const result = await chatJson({
-    system: GENERATOR_SYSTEM,
+    system: generatorSystem(locale),
     user: buildGenerationPrompt({
       subject: request.subject,
       topic: request.topicTitle,
@@ -126,6 +134,7 @@ export async function generateBridgeWithAi(
     schema: generatedExerciseBatchSchema,
     maxTokens: 2200,
     temperature: 0.6,
+    locale,
   });
 
   if (!result.ok) return { ok: false, error: result.error };

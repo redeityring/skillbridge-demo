@@ -11,9 +11,10 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { OptionGroup } from "@/components/ui/option-button";
 import { StepProgress } from "@/components/ui/progress-bar";
 import { TextArea } from "@/components/ui/textarea";
-import { findTopic } from "@/content/economics";
+import { findTopic } from "@/content";
 import { gradeAnswer } from "@/lib/api-client";
 import { demoAnswerForApplication } from "@/lib/demo";
+import { useI18n } from "@/lib/i18n";
 import { splitApplicationQuestions } from "@/lib/scoring";
 import type { AnswerEvaluation } from "@/lib/types";
 
@@ -27,8 +28,9 @@ import type { AnswerEvaluation } from "@/lib/types";
  */
 export default function ReassessPage() {
   const { state, patch, hydrated } = useSession();
+  const { t, locale } = useI18n();
   const router = useRouter();
-  const topic = findTopic(state.topicId);
+  const topic = findTopic(state.topicId, locale);
 
   const questions = useMemo(
     () => (topic ? splitApplicationQuestions(topic.applicationQuestions).reassessment : []),
@@ -66,10 +68,10 @@ export default function ReassessPage() {
   const activeId = current?.id ?? null;
   useEffect(() => {
     if (!hydrated || !activeId) return;
-    const prefill = state.demoMode ? demoAnswerForApplication(activeId) : null;
+    const prefill = state.demoMode ? demoAnswerForApplication(activeId, locale) : null;
     setSelected(prefill?.optionId ?? null);
     setReasoning(prefill?.reasoning ?? "");
-  }, [activeId, state.demoMode, hydrated]);
+  }, [activeId, state.demoMode, hydrated, locale]);
 
   const submit = useCallback(async () => {
     if (!current || !topic || !selected) return;
@@ -81,6 +83,7 @@ export default function ReassessPage() {
       rubric: current.rubric,
       answer: { optionId: selected, reasoning },
       demoMode: state.demoMode,
+      locale,
     });
     patch({
       reassessmentQuestionIds: questions.map((question) => question.id),
@@ -101,6 +104,7 @@ export default function ReassessPage() {
     selected,
     reasoning,
     state.demoMode,
+    locale,
     state.reassessmentAnswers,
     state.reassessmentEvaluations,
     questions,
@@ -114,16 +118,14 @@ export default function ReassessPage() {
   }, [index, questions.length, router]);
 
   if (!hydrated) {
-    return <LoadingState title="Loading reassessment…" messages={["Restoring your session…"]} />;
+    return <LoadingState title={t.reassessLoadingTitle} messages={[t.reassessLoadingMsg]} />;
   }
 
   if (!topic || questions.length === 0) {
     return (
       <div className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          No reassessment available. Complete a diagnostic first.
-        </p>
-        <Button onClick={() => router.push("/diagnostic")}>Start diagnostic</Button>
+        <p className="text-sm text-muted-foreground">{t.noReassessment}</p>
+        <Button onClick={() => router.push("/diagnostic")}>{t.startDiagnostic}</Button>
       </div>
     );
   }
@@ -131,22 +133,22 @@ export default function ReassessPage() {
   return (
     <div className="space-y-8">
       <StepProgress
-        eyebrow="Reassessment · new scenarios"
-        title={`${topic.title} again`}
+        eyebrow={t.reassessEyebrow}
+        title={`${topic.title} ${t.reassessTitle}`}
         step={Math.min(index + 1, questions.length)}
         total={questions.length}
       />
 
       {evaluation ? (
-        <FeedbackCard evaluation={evaluation} title="Reassessment scored">
+        <FeedbackCard evaluation={evaluation} title={t.reassessScored}>
           <Button onClick={next}>
-            {index + 1 < questions.length ? "Next scenario" : "See my progress"}
+            {index + 1 < questions.length ? t.nextScenario : t.seeMyProgress}
           </Button>
         </FeedbackCard>
       ) : current ? (
         <div className="space-y-4">
           <ScenarioBlock
-            eyebrow="Unseen scenario"
+            eyebrow={t.unseenScenario}
             skill={current.skill}
             title={current.title}
             scenario={current.scenario}
@@ -156,7 +158,7 @@ export default function ReassessPage() {
             <div className="space-y-5">
               <OptionGroup
                 name={current.id}
-                legend="Choose an answer"
+                legend={t.chooseAnswer}
                 options={current.options.map((option) => ({
                   id: option.id,
                   label: option.label,
@@ -168,9 +170,9 @@ export default function ReassessPage() {
                 label={current.reasoningPrompt}
                 value={reasoning}
                 onChange={setReasoning}
-                placeholder="Two or three sentences is enough."
+                placeholder={t.placeholder}
                 minWords={15}
-                helper="Same concept, new setting — this is what measures transfer."
+                helper={t.sameConceptHelper}
               />
             </div>
           </ScenarioBlock>
@@ -182,10 +184,10 @@ export default function ReassessPage() {
               loading={submitting}
               disabled={!selected || reasoning.trim().length < 3}
             >
-              Submit answer
+              {t.submitAnswer}
             </Button>
             <span className="text-xs text-subtle-foreground">
-              {selected ? "Explain your reasoning, then submit." : "Choose an answer."}
+              {selected ? t.explainThenSubmit : t.chooseAnswer}
             </span>
           </div>
         </div>

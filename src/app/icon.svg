@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!--
+    SkillBridge mark: two pillars of different height (theory and application)
+    joined by a bridging span. The span is the product: the practice that closes
+    the distance between knowing and applying.
+  -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f46e5"/>
+      <stop offset="0.55" stop-color="#6d28d9"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+  <!-- left pillar (shorter — understanding) -->
+  <rect x="12" y="34" width="7" height="16" rx="2.5" fill="#ffffff"/>
+  <!-- right pillar (taller — application after bridging) -->
+  <rect x="45" y="26" width="7" height="24" rx="2.5" fill="#ffffff"/>
+  <!-- bridge span connecting the pillars -->
+  <path d="M15.5 27.5 L48.5 19" stroke="#ffffff" stroke-width="5" stroke-linecap="round" fill="none"/>
+</svg>

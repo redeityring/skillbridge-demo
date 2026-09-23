@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getTopic } from "@/content/economics";
+import { getTopic } from "@/content";
 import { generateBridgeWithAi } from "@/lib/ai/tasks";
 import { pickBankExercises, stampExercises, type BridgePlan } from "@/lib/bridge";
 import { ASSESSMENT_CONFIG } from "@/lib/scoring";
@@ -12,17 +12,19 @@ import type { BridgeExercise, GapLevel, TopicId } from "@/lib/types";
  *
  * The plan (which skills to train, what went wrong, what to avoid repeating)
  * comes from the client, because only the client holds the learner's
- * evaluations. The exercise bank and the AI call are server-side.
+ * evaluations. The exercise bank and the AI call are server-side, resolved in
+ * the learner's language.
  */
 
 const requestSchema = z.object({
   topicId: z.enum(["opportunity-cost", "supply-and-demand", "inflation"]),
   runId: z.string().min(1).max(40),
   gapLevel: z.enum(["low", "medium", "high"]),
-  targetSkills: z.array(z.string().min(1).max(80)).min(1).max(6),
+  targetSkills: z.array(z.string().min(1).max(120)).min(1).max(6),
   weaknesses: z.array(z.string().min(1).max(300)).max(6).default([]),
   avoid: z.array(z.string().min(1).max(300)).max(6).default([]),
   count: z.coerce.number().int().min(1).max(4).optional(),
+  locale: z.enum(["en", "ru"]).default("en"),
 });
 
 export async function POST(request: Request) {
@@ -34,7 +36,7 @@ export async function POST(request: Request) {
   }
 
   const topicId = payload.topicId as TopicId;
-  const topic = getTopic(topicId);
+  const topic = getTopic(topicId, payload.locale);
   const count = payload.count ?? ASSESSMENT_CONFIG.bridgeExerciseCount;
 
   const plan: BridgePlan = {
@@ -52,6 +54,7 @@ export async function POST(request: Request) {
     weaknesses: plan.weaknesses,
     avoid: plan.avoid,
     count,
+    locale: payload.locale,
   });
 
   if (generated.ok && generated.exercises.length > 0) {
@@ -67,7 +70,9 @@ export async function POST(request: Request) {
     source: "bank",
     notice: generated.ok
       ? null
-      : `${generated.error} Using SkillBridge's curated practice bank instead.`,
+      : `${generated.error} ${payload.locale === "ru"
+          ? "Используем курируемый банк практики SkillBridge."
+          : "Using SkillBridge's curated practice bank instead."}`,
   });
 }
 
@@ -77,7 +82,7 @@ export async function GET() {
   return NextResponse.json({
     bank: topics.map((id) => ({
       topicId: id,
-      exercises: getTopic(id).bridgeBank.length,
+      exercises: getTopic(id, "en").bridgeBank.length,
     })),
   });
 }
